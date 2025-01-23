@@ -20,7 +20,7 @@ Gem::Specification.new do |spec|
   spec.bindir = "bin"
   spec.executables = ["discourse-systray"]
   
-  spec.add_dependency "gtk3", "~> 3.4"
+  spec.add_dependency "gtk3", "~> 4.2"
   
   spec.add_development_dependency "bundler", "~> 2.0"
   spec.add_development_dependency "rake", "~> 13.0"
