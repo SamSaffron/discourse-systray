@@ -23,6 +23,7 @@ class DiscourseSystemTray
     @indicator = Gtk::StatusIcon.new
     @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: "discourse.png")
     @indicator.tooltip_text = "Discourse Manager"
+    @running = false
 
     # Create right-click menu
     @indicator.signal_connect("popup-menu") do |tray, button, time|
@@ -39,14 +40,20 @@ class DiscourseSystemTray
       start_item.signal_connect("activate") do
         set_icon(:running)
         start_discourse
+        @running = true
       end
 
       stop_item.signal_connect("activate") do
         set_icon(:stopped)
         stop_discourse
+        @running = false
       end
 
       quit_item.signal_connect("activate") { Gtk.main_quit }
+
+      # Show/hide items based on running state
+      start_item.visible = !@running
+      stop_item.visible = @running
 
       @ember_output = []
       @unicorn_output = []
@@ -69,6 +76,10 @@ class DiscourseSystemTray
     @unicorn_output.clear
     
     Dir.chdir(DISCOURSE_PATH) do
+      # Clean up stale unicorn pid file if it exists
+      pid_file = "tmp/pids/unicorn.pid"
+      File.delete(pid_file) if File.exist?(pid_file)
+      
       @processes[:ember] = start_process("bin/ember-cli")
       @processes[:unicorn] = start_process("bin/unicorn")
     end
