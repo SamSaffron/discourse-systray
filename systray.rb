@@ -65,6 +65,9 @@ class DiscourseSystemTray
   end
 
   def start_discourse
+    @ember_output.clear
+    @unicorn_output.clear
+    
     Dir.chdir(DISCOURSE_PATH) do
       @processes[:ember] = start_process("bin/ember-cli")
       @processes[:unicorn] = start_process("bin/unicorn")
@@ -93,6 +96,8 @@ class DiscourseSystemTray
         puts msg if OPTIONS[:debug]
         buffer << msg
         buffer.shift if buffer.size > BUFFER_SIZE
+        # Force GUI update
+        GLib::Idle.add { update_all_views; false }
       end
     end
 
@@ -104,6 +109,8 @@ class DiscourseSystemTray
         puts msg if OPTIONS[:debug]
         buffer << msg
         buffer.shift if buffer.size > BUFFER_SIZE
+        # Force GUI update
+        GLib::Idle.add { update_all_views; false }
       end
     end
 
@@ -122,14 +129,21 @@ class DiscourseSystemTray
 
     notebook = Gtk::Notebook.new
 
-    ember_view = create_log_view(@ember_output)
-    notebook.append_page(ember_view, Gtk::Label.new("Ember CLI"))
+    @ember_view = create_log_view(@ember_output)
+    notebook.append_page(@ember_view, Gtk::Label.new("Ember CLI"))
 
-    unicorn_view = create_log_view(@unicorn_output)
-    notebook.append_page(unicorn_view, Gtk::Label.new("Unicorn"))
+    @unicorn_view = create_log_view(@unicorn_output)
+    notebook.append_page(@unicorn_view, Gtk::Label.new("Unicorn"))
 
     window.add(notebook)
     window.show_all
+  end
+
+  def update_all_views
+    return unless @ember_view && @unicorn_view
+    
+    update_log_view(@ember_view.child, @ember_output)
+    update_log_view(@unicorn_view.child, @unicorn_output)
   end
 
   def create_log_view(buffer)
