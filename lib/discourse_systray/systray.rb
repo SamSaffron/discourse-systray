@@ -193,7 +193,10 @@ class DiscourseSystemTray
   end
 
   def start_process(command)
-    stdin, stdout, stderr, wait_thr = Open3.popen3(command)
+    # Clear bundler environment variables to prevent conflicts
+    env = ENV.to_h.reject { |k,_| k.start_with?('BUNDLE_', 'RUBYOPT', 'RUBY_VERSION', 'GEM_') }
+    
+    stdin, stdout, stderr, wait_thr = Open3.popen3(env, command)
 
     # Create a monitor thread that will detect if process dies
     monitor_thread =
