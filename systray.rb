@@ -98,7 +98,7 @@ class DiscourseSystemTray
       begin
         Process.kill("TERM", process[:pid])
         # Wait for process to finish with timeout
-        Timeout.new(10) do
+        Timeout.timeout(10) do
           process[:thread].join
         end
       rescue StandardError => e
