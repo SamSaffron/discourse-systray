@@ -71,6 +71,7 @@ class DiscourseSystemTray
     @processes = {}
     @ember_running = false
     @unicorn_running = false
+    @status_window = nil
 
     # Create right-click menu
     @indicator.signal_connect("popup-menu") do |tray, button, time|
@@ -221,14 +222,24 @@ class DiscourseSystemTray
   end
 
   def show_status_window
-    window = Gtk::Window.new("Discourse Status")
-    window.set_default_size(800, 600)
+    if @status_window
+      @status_window.present
+      # Try to move window to current workspace
+      screen = @status_window.screen
+      window = Gdk::Window.new(screen.root_window)
+      window.move_to_current_desktop if window.respond_to?(:move_to_current_desktop)
+      return
+    end
+
+    @status_window = Gtk::Window.new("Discourse Status")
+    @status_window.set_default_size(800, 600)
     
     # Handle window destruction
-    window.signal_connect("destroy") do
+    @status_window.signal_connect("destroy") do
       @notebook = nil
       @ember_view = nil
       @unicorn_view = nil
+      @status_window = nil
     end
 
     @notebook = Gtk::Notebook.new
@@ -241,8 +252,8 @@ class DiscourseSystemTray
     @unicorn_label = create_status_label("Unicorn", @unicorn_running)
     @notebook.append_page(@unicorn_view, @unicorn_label)
 
-    window.add(@notebook)
-    window.show_all
+    @status_window.add(@notebook)
+    @status_window.show_all
   end
 
   def update_all_views
