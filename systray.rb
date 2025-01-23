@@ -174,6 +174,10 @@ class DiscourseSystemTray
     text_view = Gtk::TextView.new
     text_view.editable = false
     text_view.wrap_mode = :word
+    
+    # Set white text on black background
+    text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
+    text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
 
     # Create text tags for colors
     _tag_table = text_view.buffer.tag_table
@@ -195,13 +199,13 @@ class DiscourseSystemTray
   def create_ansi_tags(buffer)
     # Basic ANSI colors
     {
-      "31" => "red",
-      "32" => "green",
-      "33" => "yellow",
-      "34" => "blue",
-      "35" => "magenta",
-      "36" => "cyan",
-      "37" => "white"
+      "31" => "#ff6b6b",  # Brighter red
+      "32" => "#87ff87",  # Brighter green
+      "33" => "#ffff87",  # Brighter yellow
+      "34" => "#87d7ff",  # Brighter blue
+      "35" => "#ff87ff",  # Brighter magenta
+      "36" => "#87ffff",  # Brighter cyan
+      "37" => "#ffffff"   # White
     }.each do |code, color|
       buffer.create_tag("ansi_#{code}", foreground: color)
     end
