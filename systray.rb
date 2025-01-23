@@ -23,6 +23,11 @@ class DiscourseSystemTray
     @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: "discourse.png")
     @indicator.tooltip_text = "Discourse Manager"
     @running = false
+    @ember_output = []
+    @unicorn_output = []
+    @processes = {}
+    @ember_running = false
+    @unicorn_running = false
 
     # Create right-click menu
     @indicator.signal_connect("popup-menu") do |tray, button, time|
@@ -56,12 +61,6 @@ class DiscourseSystemTray
       # Show/hide items based on running state
       start_item.visible = !@running
       stop_item.visible = @running
-
-      @ember_output = []
-      @unicorn_output = []
-      @processes = {}
-      @ember_running = false
-      @unicorn_running = false
 
       # Add status menu item
       status_item = Gtk::MenuItem.new(label: "Show Status")
