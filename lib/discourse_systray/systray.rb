@@ -195,6 +195,10 @@ class DiscourseSystemTray
   def start_process(command)
     # Clear bundler environment variables to prevent conflicts
     env = ENV.to_h.reject { |k,_| k.start_with?('BUNDLE_', 'RUBYOPT', 'RUBY_VERSION', 'GEM_') }
+    env.delete('BUNDLE_GEMFILE')
+    
+    # Remove any bundle exec prefix from commands
+    command = command.sub(/^bundle exec /, '')
     
     stdin, stdout, stderr, wait_thr = Open3.popen3(env, command)
 
