@@ -315,10 +315,16 @@ class DiscourseSystemTray
   end
 
   def update_all_views
-    return unless @ember_view && @unicorn_view
+    return unless @ember_view&.visible? && @unicorn_view&.visible?
+    return unless @ember_view&.child && @unicorn_view&.child
+    return if @ember_view&.destroyed? || @unicorn_view&.destroyed?
 
-    update_log_view(@ember_view.child, @ember_output)
-    update_log_view(@unicorn_view.child, @unicorn_output)
+    begin
+      update_log_view(@ember_view.child, @ember_output) if @ember_view.child.visible?
+      update_log_view(@unicorn_view.child, @unicorn_output) if @unicorn_view.child.visible?
+    rescue StandardError => e
+      puts "Error updating views: #{e}" if OPTIONS[:debug]
+    end
   end
 
   def create_log_view(buffer)
@@ -393,8 +399,9 @@ class DiscourseSystemTray
   end
 
   def update_log_view(text_view, buffer)
-    return if buffer.empty? || text_view.nil? || !text_view.visible?
-    return unless text_view.parent&.visible?
+    return if buffer.empty? || text_view.nil? || text_view.destroyed?
+    return unless text_view.visible? && text_view.parent&.visible?
+    return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
     text_view.buffer.text = ""
     iter = text_view.buffer.get_iter_at(offset: 0)
