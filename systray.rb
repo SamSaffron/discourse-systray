@@ -152,7 +152,7 @@ class DiscourseSystemTray
     end
 
     # Add more tags for bold, etc
-    buffer.create_tag("bold", weight: Pango::WEIGHT_BOLD)
+    buffer.create_tag("bold", weight: :bold)
   end
 
   def update_log_view(text_view, buffer)
