@@ -73,7 +73,7 @@ class DiscourseSystemTray
   def initialize
     @discourse_path = self.class.load_or_prompt_config
     @indicator = Gtk::StatusIcon.new
-    @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: "discourse.png")
+    @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: File.join(File.dirname(__FILE__), "../../assets/discourse.png"))
     @indicator.tooltip_text = "Discourse Manager"
     @running = false
     @ember_output = []
@@ -497,7 +497,8 @@ class DiscourseSystemTray
 
   def set_icon(status)
     icon_file = status == :running ? "discourse_running.png" : "discourse.png"
-    @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: icon_file)
+    icon_path = File.join(File.dirname(__FILE__), "../../assets", icon_file)
+    @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: icon_path)
   end
 
   def run
