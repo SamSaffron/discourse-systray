@@ -19,7 +19,8 @@ Gem::Specification.new do |spec|
   spec.files =
     Dir
       .glob("{bin,lib,assets}/**/*", File::FNM_DOTMATCH)
-      .reject { |f| File.directory?(f) } + %w[README.md LICENSE.txt]
+      .reject { |f| File.directory?(f) || f.end_with?(".gem") } + 
+      %w[README.md LICENSE.txt]
   spec.bindir = "bin"
   spec.executables = ["discourse-systray"]
 
