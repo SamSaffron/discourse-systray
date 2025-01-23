@@ -92,9 +92,8 @@ class DiscourseSystemTray
     Thread.new do
       while line = stdout.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        msg = "[OUT] #{line}"
-        puts msg if OPTIONS[:debug]
-        buffer << msg
+        puts "[OUT] #{line}" if OPTIONS[:debug]
+        buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
         # Force GUI update
         GLib::Idle.add { update_all_views; false }
@@ -105,9 +104,8 @@ class DiscourseSystemTray
     Thread.new do
       while line = stderr.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        msg = "[ERR] #{line}"
-        puts msg if OPTIONS[:debug]
-        buffer << msg
+        puts "[ERR] #{line}" if OPTIONS[:debug]
+        buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
         # Force GUI update
         GLib::Idle.add { update_all_views; false }
@@ -150,6 +148,7 @@ class DiscourseSystemTray
     scroll = Gtk::ScrolledWindow.new
     text_view = Gtk::TextView.new
     text_view.editable = false
+    text_view.wrap_mode = :word
 
     # Create text tags for colors
     _tag_table = text_view.buffer.tag_table
@@ -216,7 +215,6 @@ class DiscourseSystemTray
         end
       end
 
-      text_view.buffer.insert(iter, "\n")
     end
 
     # Scroll to bottom if near bottom
