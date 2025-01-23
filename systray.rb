@@ -1,6 +1,7 @@
 require "gtk3"
 require "open3"
 require "optparse"
+require "timeout"
 
 DISCOURSE_PATH = "/home/sam/Source/discourse"
 
@@ -47,7 +48,10 @@ class DiscourseSystemTray
         @running = false
       end
 
-      quit_item.signal_connect("activate") { Gtk.main_quit }
+      quit_item.signal_connect("activate") do
+        cleanup
+        Gtk.main_quit
+      end
 
       # Show/hide items based on running state
       start_item.visible = !@running
@@ -80,11 +84,21 @@ class DiscourseSystemTray
   end
 
   def stop_discourse
+    cleanup
+  end
+
+  def cleanup
+    return if @processes.empty?
+    
     @processes.each do |name, process|
       begin
         Process.kill("TERM", process[:pid])
-      rescue StandardError
-        nil
+        # Wait for process to finish with timeout
+        Timeout.new(10) do
+          process[:thread].join
+        end
+      rescue StandardError => e
+        puts "Error stopping #{name}: #{e}" if OPTIONS[:debug]
       end
     end
     @processes.clear
