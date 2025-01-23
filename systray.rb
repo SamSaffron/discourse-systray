@@ -60,6 +60,8 @@ class DiscourseSystemTray
       @ember_output = []
       @unicorn_output = []
       @processes = {}
+      @ember_running = false
+      @unicorn_running = false
 
       # Add status menu item
       status_item = Gtk::MenuItem.new(label: "Show Status")
@@ -79,7 +81,10 @@ class DiscourseSystemTray
 
     Dir.chdir(DISCOURSE_PATH) do
       @processes[:ember] = start_process("bin/ember-cli")
+      @ember_running = true
       @processes[:unicorn] = start_process("bin/unicorn")
+      @unicorn_running = true
+      update_tab_labels if @notebook
     end
   end
 
@@ -102,6 +107,9 @@ class DiscourseSystemTray
       end
     end
     @processes.clear
+    @ember_running = false
+    @unicorn_running = false
+    update_tab_labels if @notebook
   end
 
   def start_process(command)
@@ -150,15 +158,17 @@ class DiscourseSystemTray
     window = Gtk::Window.new("Discourse Status")
     window.set_default_size(800, 600)
 
-    notebook = Gtk::Notebook.new
+    @notebook = Gtk::Notebook.new
 
     @ember_view = create_log_view(@ember_output)
-    notebook.append_page(@ember_view, Gtk::Label.new("Ember CLI"))
+    @ember_label = create_status_label("Ember CLI", @ember_running)
+    @notebook.append_page(@ember_view, @ember_label)
 
     @unicorn_view = create_log_view(@unicorn_output)
-    notebook.append_page(@unicorn_view, Gtk::Label.new("Unicorn"))
+    @unicorn_label = create_status_label("Unicorn", @unicorn_running)
+    @notebook.append_page(@unicorn_view, @unicorn_label)
 
-    window.add(notebook)
+    window.add(@notebook)
     window.show_all
   end
 
@@ -252,6 +262,29 @@ class DiscourseSystemTray
         adj.value = adj.upper - adj.page_size
       end
     end
+  end
+
+  def create_status_label(text, running)
+    box = Gtk::Box.new(:horizontal, 5)
+    label = Gtk::Label.new(text)
+    status = Gtk::Label.new
+    status.override_color(:normal, Gdk::RGBA.new(running ? 0.2, 0.8, 0.2, 1 : 0.8, 0.2, 0.2, 1))
+    status.text = running ? "●" : "○"
+    box.pack_start(label, false, false, 0)
+    box.pack_start(status, false, false, 0)
+    box.show_all
+    box
+  end
+
+  def update_tab_labels
+    return unless @notebook
+    @ember_label.children[1].text = @ember_running ? "●" : "○"
+    @ember_label.children[1].override_color(:normal, 
+      Gdk::RGBA.new(@ember_running ? 0.2 : 0.8, @ember_running ? 0.8 : 0.2, 0.2, 1))
+    
+    @unicorn_label.children[1].text = @unicorn_running ? "●" : "○"
+    @unicorn_label.children[1].override_color(:normal,
+      Gdk::RGBA.new(@unicorn_running ? 0.2 : 0.8, @unicorn_running ? 0.8 : 0.2, 0.2, 1))
   end
 
   def set_icon(status)
