@@ -24,3 +24,13 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "bundler", "~> 2.0"
   spec.add_development_dependency "rake", "~> 13.0"
 end
+# frozen_string_literal: true
+
+require "bundler/gem_tasks"
+task default: %i[]
+# frozen_string_literal: true
+
+require "discourse_systray"
+
+app = DiscourseSystray::Application.new
+app.run
