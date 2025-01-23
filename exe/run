@@ -1,7 +1,12 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+env = ENV.to_h
+
 require "bundler/setup"
 require "discourse_systray/systray"
+
+# swap back env so we are not infected
+ENV.replace(env)
 
 DiscourseSystemTray.new.run
