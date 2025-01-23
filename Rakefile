@@ -9,3 +9,8 @@ desc "Build the gem"
 task :build do
   system "gem build discourse-systray.gemspec"
 end
+
+desc "Run the application in development"
+task :run do
+  ruby "exe/run"
+end
