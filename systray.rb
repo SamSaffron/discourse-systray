@@ -223,6 +223,13 @@ class DiscourseSystemTray
   def show_status_window
     window = Gtk::Window.new("Discourse Status")
     window.set_default_size(800, 600)
+    
+    # Handle window destruction
+    window.signal_connect("destroy") do
+      @notebook = nil
+      @ember_view = nil
+      @unicorn_view = nil
+    end
 
     @notebook = Gtk::Notebook.new
 
@@ -262,10 +269,19 @@ class DiscourseSystemTray
     # Initial text
     update_log_view(text_view, buffer)
 
-    # Set up periodic refresh
-    GLib::Timeout.add(1000) do
-      update_log_view(text_view, buffer)
-      true # Keep the timeout active
+    # Set up periodic refresh with validity check
+    timeout_id = GLib::Timeout.add(1000) do
+      if text_view&.parent.nil? || !text_view&.parent&.visible?
+        false  # Stop the timeout if view is destroyed
+      else
+        update_log_view(text_view, buffer) rescue nil
+        true # Keep the timeout active
+      end
+    end
+
+    # Clean up timeout when view is destroyed
+    text_view.signal_connect("destroy") do
+      GLib::Source.remove(timeout_id)
     end
 
     scroll.add(text_view)
@@ -291,7 +307,8 @@ class DiscourseSystemTray
   end
 
   def update_log_view(text_view, buffer)
-    return if buffer.empty?
+    return if buffer.empty? || text_view.nil? || !text_view.visible?
+    return unless text_view.parent&.visible?
 
     text_view.buffer.text = ""
     iter = text_view.buffer.get_iter_at(offset: 0)
