@@ -264,6 +264,9 @@ class DiscourseSystemTray
     @status_window = Gtk::Window.new("Discourse Status")
     @status_window.set_default_size(800, 600)
     @status_window.set_wmclass("discourse-status", "Discourse Status")
+    @status_window.window_position = :center
+    @status_window.type_hint = :dialog
+    @status_window.set_role("discourse-status-dialog")
 
     # Handle window destruction and hide
     @status_window.signal_connect("delete-event") do
