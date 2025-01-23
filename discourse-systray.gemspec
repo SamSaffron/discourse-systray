@@ -15,7 +15,8 @@ Gem::Specification.new do |spec|
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
 
-  spec.files = Dir.glob("{bin,lib,assets}/**/*") + %w[README.md LICENSE.txt]
+  spec.files = Dir.glob("{bin,lib,assets}/**/*", File::FNM_DOTMATCH).reject { |f| File.directory?(f) } +
+               %w[README.md LICENSE.txt]
   spec.bindir = "bin"
   spec.executables = ["discourse-systray"]
   
