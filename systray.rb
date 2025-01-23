@@ -361,8 +361,8 @@ class DiscourseSystemTray
       )
     status.override_color(:normal, color)
     status.text = running ? "●" : "○"
-    box.pack_start(label, false, false, 0)
-    box.pack_start(status, false, false, 0)
+    box.pack_start(label, expand: false, fill: false, padding: 0)
+    box.pack_start(status, expand: false, fill: false, padding: 0)
     box.show_all
     box
   end
