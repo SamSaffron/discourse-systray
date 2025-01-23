@@ -55,8 +55,17 @@ class DiscourseSystemTray
     path
   end
 
-  def self.save_config(path:)
-    File.write(CONFIG_FILE, JSON.generate({ path: path }))
+  def self.save_config(path:, window_geometry: nil)
+    config = { path: path }
+    config[:window_geometry] = window_geometry if window_geometry
+    File.write(CONFIG_FILE, JSON.generate(config))
+  end
+
+  def self.load_config
+    return {} unless File.exist?(CONFIG_FILE)
+    JSON.parse(File.read(CONFIG_FILE))
+  rescue JSON::ParserError
+    {}
   end
   BUFFER_SIZE = 2000
 
@@ -262,16 +271,32 @@ class DiscourseSystemTray
     end
 
     @status_window = Gtk::Window.new("Discourse Status")
-    @status_window.set_default_size(800, 600)
     @status_window.set_wmclass("discourse-status", "Discourse Status")
-    @status_window.window_position = :center
+    
+    # Load saved geometry or use defaults
+    config = self.class.load_config
+    if config["window_geometry"]
+      geo = config["window_geometry"]
+      @status_window.move(geo["x"], geo["y"])
+      @status_window.resize(geo["width"], geo["height"])
+    else
+      @status_window.set_default_size(800, 600)
+      @status_window.window_position = :center
+    end
     @status_window.type_hint = :dialog
     @status_window.set_role("discourse-status-dialog")
 
     # Handle window destruction and hide
     @status_window.signal_connect("delete-event") do
+      save_window_geometry
       @status_window.hide
       true # Prevent destruction
+    end
+
+    # Save position and size when window is moved or resized
+    @status_window.signal_connect("configure-event") do
+      save_window_geometry
+      false
     end
 
     @notebook = Gtk::Notebook.new
@@ -449,6 +474,23 @@ class DiscourseSystemTray
         0.2,
         1
       )
+    )
+  end
+
+  def save_window_geometry
+    return unless @status_window&.visible? && @status_window.window
+    
+    x, y = @status_window.position
+    width, height = @status_window.size
+    
+    self.class.save_config(
+      path: @discourse_path,
+      window_geometry: {
+        "x" => x,
+        "y" => y,
+        "width" => width,
+        "height" => height
+      }
     )
   end
 
