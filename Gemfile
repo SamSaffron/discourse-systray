@@ -1,3 +1,4 @@
 source 'https://rubygems.org'
 
-gem 'gtk3'
+# Specify your gem's dependencies in discourse-systray.gemspec
+gemspec
