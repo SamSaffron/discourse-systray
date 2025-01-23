@@ -218,9 +218,11 @@ class DiscourseSystemTray
     end
 
     # Scroll to bottom if near bottom
-    adj = text_view.parent.vadjustment
-    if adj.value >= adj.upper - adj.page_size - 50
-      adj.value = adj.upper - adj.page_size
+    if text_view&.parent&.vadjustment
+      adj = text_view.parent.vadjustment
+      if adj.value >= adj.upper - adj.page_size - 50
+        adj.value = adj.upper - adj.page_size
+      end
     end
   end
 
