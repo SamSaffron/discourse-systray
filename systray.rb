@@ -163,12 +163,18 @@ class DiscourseSystemTray
     @ember_running = false
     @unicorn_running = false
     update_tab_labels if @notebook
-    
+
     # Clean up window and timeouts on exit
     if @status_window
       # Clean up any existing timeouts
       if @view_timeouts
-        @view_timeouts.values.each { |id| GLib::Source.remove(id) rescue nil }
+        @view_timeouts.values.each do |id|
+          begin
+            GLib::Source.remove(id)
+          rescue StandardError
+            nil
+          end
+        end
         @view_timeouts.clear
       end
       @status_window.destroy
@@ -240,7 +246,9 @@ class DiscourseSystemTray
         @status_window.window.raise
         if system("which i3-msg >/dev/null 2>&1")
           # First move to current workspace, then focus
-          system("i3-msg '[id=#{@status_window.window.xid}] move workspace current'")
+          system(
+            "i3-msg '[id=#{@status_window.window.xid}] move workspace current'"
+          )
           system("i3-msg '[id=#{@status_window.window.xid}] focus'")
         end
       end
@@ -255,10 +263,8 @@ class DiscourseSystemTray
 
     @status_window = Gtk::Window.new("Discourse Status")
     @status_window.set_default_size(800, 600)
-    
-    # Set window class and title for i3 window rules
     @status_window.set_wmclass("discourse-status", "Discourse Status")
-    
+
     # Handle window destruction and hide
     @status_window.signal_connect("delete-event") do
       @status_window.hide
@@ -305,24 +311,33 @@ class DiscourseSystemTray
 
     # Store timeouts in instance variable for proper cleanup
     @view_timeouts ||= {}
-    
+
     # Set up periodic refresh with validity check
-    timeout_id = GLib::Timeout.add(1000) do
-      if text_view&.parent.nil? || !text_view&.parent&.visible?
-        @view_timeouts.delete(text_view.object_id)
-        false  # Stop the timeout if view is destroyed
-      else
-        update_log_view(text_view, buffer) rescue nil
-        true # Keep the timeout active
+    timeout_id =
+      GLib::Timeout.add(1000) do
+        if text_view&.parent.nil? || !text_view&.parent&.visible?
+          @view_timeouts.delete(text_view.object_id)
+          false # Stop the timeout if view is destroyed
+        else
+          begin
+            update_log_view(text_view, buffer)
+          rescue StandardError
+            nil
+          end
+          true # Keep the timeout active
+        end
       end
-    end
-    
+
     @view_timeouts[text_view.object_id] = timeout_id
 
     # Clean up timeout when view is destroyed
     text_view.signal_connect("destroy") do
       if timeout_id = @view_timeouts.delete(text_view.object_id)
-        GLib::Source.remove(timeout_id) rescue nil
+        begin
+          GLib::Source.remove(timeout_id)
+        rescue StandardError
+          nil
+        end
       end
     end
 
