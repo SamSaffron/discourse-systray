@@ -1,6 +1,5 @@
 require "gtk3"
 require "open3"
-require "terminfo"
 
 DISCOURSE_PATH = "/home/sam/Source/discourse"
 
