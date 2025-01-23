@@ -5,22 +5,19 @@ require "timeout"
 require "fileutils"
 require "json"
 
-# Parse command line options
-OPTIONS = { debug: false, path: nil }
-
-OptionParser
-  .new do |opts|
-    opts.banner = "Usage: systray.rb [options]"
-    opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
-    opts.on("--path PATH", "Set Discourse path") { |p| OPTIONS[:path] = p }
-  end
-  .parse!
-
 class DiscourseSystemTray
   CONFIG_DIR = File.expand_path("~/.config/discourse-systray")
   CONFIG_FILE = File.join(CONFIG_DIR, "config.json")
+  OPTIONS = { debug: false, path: nil }
 
   def self.load_or_prompt_config
+    OptionParser
+      .new do |opts|
+        opts.banner = "Usage: systray.rb [options]"
+        opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
+        opts.on("--path PATH", "Set Discourse path") { |p| OPTIONS[:path] = p }
+      end
+      .parse!
     FileUtils.mkdir_p(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
 
     if OPTIONS[:path]
@@ -188,9 +185,7 @@ class DiscourseSystemTray
     @unicorn_running = false
 
     # Finally clean up UI elements
-    if @notebook && !@notebook.destroyed?
-      update_tab_labels 
-    end
+    update_tab_labels if @notebook && !@notebook.destroyed?
 
     if @status_window && !@status_window.destroyed?
       @status_window.destroy
