@@ -235,6 +235,11 @@ class DiscourseSystemTray
   def show_status_window
     if @status_window&.visible?
       @status_window.present
+      # Force window to current workspace in i3
+      if @status_window.window
+        @status_window.window.raise
+        system("i3-msg '[id=#{@status_window.window.xid}] focus'")
+      end
       return
     end
 
