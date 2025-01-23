@@ -238,7 +238,9 @@ class DiscourseSystemTray
       # Force window to current workspace in i3
       if @status_window.window
         @status_window.window.raise
-        system("i3-msg '[id=#{@status_window.window.xid}] focus'")
+        if system("which i3-msg >/dev/null 2>&1")
+          system("i3-msg '[id=#{@status_window.window.xid}] focus'")
+        end
       end
       return
     end
