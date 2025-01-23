@@ -1,2 +1,8 @@
 .aider*
 .env
+*.gem
+pkg/
+tmp/
+coverage/
+.bundle/
+vendor/bundle/
