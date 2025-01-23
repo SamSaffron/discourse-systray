@@ -81,7 +81,7 @@ class DiscourseSystemTray
     Dir.chdir(DISCOURSE_PATH) do
       @processes[:ember] = start_process("bin/ember-cli")
       @ember_running = true
-      @processes[:unicorn] = start_process("bin/unicorn")
+      @processes[:unicorn] = start_process("RAILS_ENV=development bin/unicorn -c config/unicorn.conf.rb")
       @unicorn_running = true
       update_tab_labels if @notebook
     end
