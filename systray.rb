@@ -114,6 +114,18 @@ class DiscourseSystemTray
 
   def start_process(command)
     stdin, stdout, stderr, wait_thr = Open3.popen3(command)
+    
+    # Create a monitor thread that will detect if process dies
+    monitor_thread = Thread.new do
+      wait_thr.value  # Wait for process to finish
+      is_ember = command.include?("ember-cli")
+      @ember_running = false if is_ember
+      @unicorn_running = false unless is_ember
+      GLib::Idle.add do
+        update_tab_labels if @notebook
+        false
+      end
+    end
 
     # Monitor stdout
     Thread.new do
@@ -150,7 +162,8 @@ class DiscourseSystemTray
       stdin: stdin,
       stdout: stdout,
       stderr: stderr,
-      thread: wait_thr
+      thread: wait_thr,
+      monitor: monitor_thread
     }
   end
 
