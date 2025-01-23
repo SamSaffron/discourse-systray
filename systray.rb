@@ -58,10 +58,6 @@ class DiscourseSystemTray
         Gtk.main_quit
       end
 
-      # Show/hide items based on running state
-      start_item.visible = !@running
-      stop_item.visible = @running
-
       # Add status menu item
       status_item = Gtk::MenuItem.new(label: "Show Status")
       menu.append(Gtk::SeparatorMenuItem.new)
@@ -70,6 +66,10 @@ class DiscourseSystemTray
       status_item.signal_connect("activate") { show_status_window }
 
       menu.show_all
+      
+      # Show/hide items based on running state - AFTER show_all
+      start_item.visible = !@running
+      stop_item.visible = @running
       menu.popup(nil, nil, button, time)
     end
   end
