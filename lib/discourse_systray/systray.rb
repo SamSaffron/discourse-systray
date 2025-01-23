@@ -163,6 +163,17 @@ class DiscourseSystemTray
   def cleanup
     return if @processes.empty?
 
+    # First disable updates to prevent race conditions
+    @view_timeouts&.values&.each do |id|
+      begin
+        GLib::Source.remove(id)
+      rescue StandardError => e
+        puts "Error removing timeout: #{e}" if OPTIONS[:debug]
+      end
+    end
+    @view_timeouts&.clear
+
+    # Then stop processes
     @processes.each do |name, process|
       begin
         Process.kill("TERM", process[:pid])
@@ -175,21 +186,13 @@ class DiscourseSystemTray
     @processes.clear
     @ember_running = false
     @unicorn_running = false
-    update_tab_labels if @notebook
 
-    # Clean up window and timeouts on exit
-    if @status_window
-      # Clean up any existing timeouts
-      if @view_timeouts
-        @view_timeouts.values.each do |id|
-          begin
-            GLib::Source.remove(id)
-          rescue StandardError
-            nil
-          end
-        end
-        @view_timeouts.clear
-      end
+    # Finally clean up UI elements
+    if @notebook && !@notebook.destroyed?
+      update_tab_labels 
+    end
+
+    if @status_window && !@status_window.destroyed?
       @status_window.destroy
       @status_window = nil
     end
@@ -318,15 +321,17 @@ class DiscourseSystemTray
   end
 
   def update_all_views
-    return unless @ember_view&.visible? && @unicorn_view&.visible?
-    return unless @ember_view&.child && @unicorn_view&.child
-    return if @ember_view&.destroyed? || @unicorn_view&.destroyed?
+    return unless @status_window && !@status_window.destroyed?
+    return unless @ember_view && @unicorn_view
+    return unless @ember_view.child && @unicorn_view.child
+    return if @ember_view.destroyed? || @unicorn_view.destroyed?
+    return if @ember_view.child.destroyed? || @unicorn_view.child.destroyed?
 
     begin
-      if @ember_view.child.visible?
+      if @ember_view.visible? && @ember_view.child.visible?
         update_log_view(@ember_view.child, @ember_output)
       end
-      if @unicorn_view.child.visible?
+      if @unicorn_view.visible? && @unicorn_view.child.visible?
         update_log_view(@unicorn_view.child, @unicorn_output)
       end
     rescue StandardError => e
