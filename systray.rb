@@ -35,16 +35,20 @@ class DiscourseSystemTray
 
       # Create menu items with icons
       start_item = Gtk::ImageMenuItem.new(label: "Start Discourse")
-      start_item.image = Gtk::Image.new(icon_name: "media-playback-start", size: :menu)
-      
+      start_item.image =
+        Gtk::Image.new(icon_name: "media-playback-start", size: :menu)
+
       stop_item = Gtk::ImageMenuItem.new(label: "Stop Discourse")
-      stop_item.image = Gtk::Image.new(icon_name: "media-playback-stop", size: :menu)
-      
+      stop_item.image =
+        Gtk::Image.new(icon_name: "media-playback-stop", size: :menu)
+
       status_item = Gtk::ImageMenuItem.new(label: "Show Status")
-      status_item.image = Gtk::Image.new(icon_name: "utilities-system-monitor", size: :menu)
-      
+      status_item.image =
+        Gtk::Image.new(icon_name: "utilities-system-monitor", size: :menu)
+
       quit_item = Gtk::ImageMenuItem.new(label: "Quit")
-      quit_item.image = Gtk::Image.new(icon_name: "application-exit", size: :menu)
+      quit_item.image =
+        Gtk::Image.new(icon_name: "application-exit", size: :menu)
 
       # Add items in new order
       menu.append(start_item)
@@ -71,11 +75,10 @@ class DiscourseSystemTray
         Gtk.main_quit
       end
 
-
       status_item.signal_connect("activate") { show_status_window }
 
       menu.show_all
-      
+
       # Show/hide items based on running state - AFTER show_all
       start_item.visible = !@running
       stop_item.visible = @running
@@ -90,7 +93,9 @@ class DiscourseSystemTray
     Dir.chdir(DISCOURSE_PATH) do
       @processes[:ember] = start_process("bin/ember-cli")
       @ember_running = true
-      @processes[:unicorn] = start_process("RAILS_ENV=development bin/unicorn -c config/unicorn.conf.rb")
+      @processes[:unicorn] = start_process(
+        "RAILS_ENV=development bin/unicorn -c config/unicorn.conf.rb"
+      )
       @unicorn_running = true
       update_tab_labels if @notebook
     end
@@ -102,14 +107,12 @@ class DiscourseSystemTray
 
   def cleanup
     return if @processes.empty?
-    
+
     @processes.each do |name, process|
       begin
         Process.kill("TERM", process[:pid])
         # Wait for process to finish with timeout
-        Timeout.timeout(10) do
-          process[:thread].join
-        end
+        Timeout.timeout(10) { process[:thread].join }
       rescue StandardError => e
         puts "Error stopping #{name}: #{e}" if OPTIONS[:debug]
       end
@@ -122,18 +125,19 @@ class DiscourseSystemTray
 
   def start_process(command)
     stdin, stdout, stderr, wait_thr = Open3.popen3(command)
-    
+
     # Create a monitor thread that will detect if process dies
-    monitor_thread = Thread.new do
-      wait_thr.value  # Wait for process to finish
-      is_ember = command.include?("ember-cli")
-      @ember_running = false if is_ember
-      @unicorn_running = false unless is_ember
-      GLib::Idle.add do
-        update_tab_labels if @notebook
-        false
+    monitor_thread =
+      Thread.new do
+        wait_thr.value # Wait for process to finish
+        is_ember = command.include?("ember-cli")
+        @ember_running = false if is_ember
+        @unicorn_running = false unless is_ember
+        GLib::Idle.add do
+          update_tab_labels if @notebook
+          false
+        end
       end
-    end
 
     # Monitor stdout
     Thread.new do
@@ -205,7 +209,7 @@ class DiscourseSystemTray
     text_view = Gtk::TextView.new
     text_view.editable = false
     text_view.wrap_mode = :word
-    
+
     # Set white text on black background
     text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
     text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
@@ -230,13 +234,13 @@ class DiscourseSystemTray
   def create_ansi_tags(buffer)
     # Basic ANSI colors
     {
-      "31" => "#ff6b6b",  # Brighter red
-      "32" => "#87ff87",  # Brighter green
-      "33" => "#ffff87",  # Brighter yellow
-      "34" => "#87d7ff",  # Brighter blue
-      "35" => "#ff87ff",  # Brighter magenta
-      "36" => "#87ffff",  # Brighter cyan
-      "37" => "#ffffff"   # White
+      "31" => "#ff6b6b", # Brighter red
+      "32" => "#87ff87", # Brighter green
+      "33" => "#ffff87", # Brighter yellow
+      "34" => "#87d7ff", # Brighter blue
+      "35" => "#ff87ff", # Brighter magenta
+      "36" => "#87ffff", # Brighter cyan
+      "37" => "#ffffff" # White
     }.each do |code, color|
       buffer.create_tag("ansi_#{code}", foreground: color)
     end
@@ -289,7 +293,14 @@ class DiscourseSystemTray
     box = Gtk::Box.new(:horizontal, 5)
     label = Gtk::Label.new(text)
     status = Gtk::Label.new
-    color = running ? Gdk::RGBA.new(0.2, 0.8, 0.2, 1) : Gdk::RGBA.new(0.8, 0.2, 0.2, 1)
+    color =
+      (
+        if running
+          Gdk::RGBA.new(0.2, 0.8, 0.2, 1)
+        else
+          Gdk::RGBA.new(0.8, 0.2, 0.2, 1)
+        end
+      )
     status.override_color(:normal, color)
     status.text = running ? "●" : "○"
     box.pack_start(label, false, false, 0)
@@ -301,12 +312,26 @@ class DiscourseSystemTray
   def update_tab_labels
     return unless @notebook
     @ember_label.children[1].text = @ember_running ? "●" : "○"
-    @ember_label.children[1].override_color(:normal, 
-      Gdk::RGBA.new(@ember_running ? 0.2 : 0.8, @ember_running ? 0.8 : 0.2, 0.2, 1))
-    
+    @ember_label.children[1].override_color(
+      :normal,
+      Gdk::RGBA.new(
+        @ember_running ? 0.2 : 0.8,
+        @ember_running ? 0.8 : 0.2,
+        0.2,
+        1
+      )
+    )
+
     @unicorn_label.children[1].text = @unicorn_running ? "●" : "○"
-    @unicorn_label.children[1].override_color(:normal,
-      Gdk::RGBA.new(@unicorn_running ? 0.2 : 0.8, @unicorn_running ? 0.8 : 0.2, 0.2, 1))
+    @unicorn_label.children[1].override_color(
+      :normal,
+      Gdk::RGBA.new(
+        @unicorn_running ? 0.2 : 0.8,
+        @unicorn_running ? 0.8 : 0.2,
+        0.2,
+        1
+      )
+    )
   end
 
   def set_icon(status)
