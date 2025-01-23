@@ -163,6 +163,12 @@ class DiscourseSystemTray
     @ember_running = false
     @unicorn_running = false
     update_tab_labels if @notebook
+    
+    # Clean up window on exit
+    if @status_window
+      @status_window.destroy
+      @status_window = nil
+    end
   end
 
   def start_process(command)
@@ -222,24 +228,24 @@ class DiscourseSystemTray
   end
 
   def show_status_window
-    if @status_window
+    if @status_window&.visible?
       @status_window.present
-      # Try to move window to current workspace
-      screen = @status_window.screen
-      window = Gdk::Window.new(screen.root_window)
-      window.move_to_current_desktop if window.respond_to?(:move_to_current_desktop)
       return
+    end
+
+    # Clean up any existing window
+    if @status_window
+      @status_window.destroy
+      @status_window = nil
     end
 
     @status_window = Gtk::Window.new("Discourse Status")
     @status_window.set_default_size(800, 600)
     
-    # Handle window destruction
-    @status_window.signal_connect("destroy") do
-      @notebook = nil
-      @ember_view = nil
-      @unicorn_view = nil
-      @status_window = nil
+    # Handle window destruction and hide
+    @status_window.signal_connect("delete-event") do
+      @status_window.hide
+      true # Prevent destruction
     end
 
     @notebook = Gtk::Notebook.new
