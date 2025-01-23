@@ -1,7 +1,20 @@
 require "gtk3"
 require "open3"
+require "optparse"
 
 DISCOURSE_PATH = "/home/sam/Source/discourse"
+
+# Parse command line options
+OPTIONS = {
+  debug: false
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: systray.rb [options]"
+  opts.on("--debug", "Enable debug mode") do
+    OPTIONS[:debug] = true
+  end
+end.parse!
 
 class DiscourseSystemTray
   BUFFER_SIZE = 2000
@@ -76,7 +89,9 @@ class DiscourseSystemTray
     Thread.new do
       while line = stdout.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        buffer << "[OUT] #{line}"
+        msg = "[OUT] #{line}"
+        puts msg if OPTIONS[:debug]
+        buffer << msg
         buffer.shift if buffer.size > BUFFER_SIZE
       end
     end
@@ -85,7 +100,9 @@ class DiscourseSystemTray
     Thread.new do
       while line = stderr.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        buffer << "[ERR] #{line}"
+        msg = "[ERR] #{line}"
+        puts msg if OPTIONS[:debug]
+        buffer << msg
         buffer.shift if buffer.size > BUFFER_SIZE
       end
     end
@@ -159,7 +176,7 @@ class DiscourseSystemTray
     return if buffer.empty?
 
     text_view.buffer.text = ""
-    iter = text_view.buffer.get_iter_at_offset(0)
+    iter = text_view.buffer.get_iter_at(offset: 0)
 
     buffer.each do |line|
       # Parse ANSI sequences
