@@ -164,8 +164,13 @@ class DiscourseSystemTray
     @unicorn_running = false
     update_tab_labels if @notebook
     
-    # Clean up window on exit
+    # Clean up window and timeouts on exit
     if @status_window
+      # Clean up any existing timeouts
+      if @view_timeouts
+        @view_timeouts.values.each { |id| GLib::Source.remove(id) rescue nil }
+        @view_timeouts.clear
+      end
       @status_window.destroy
       @status_window = nil
     end
@@ -286,19 +291,27 @@ class DiscourseSystemTray
     # Initial text
     update_log_view(text_view, buffer)
 
+    # Store timeouts in instance variable for proper cleanup
+    @view_timeouts ||= {}
+    
     # Set up periodic refresh with validity check
     timeout_id = GLib::Timeout.add(1000) do
       if text_view&.parent.nil? || !text_view&.parent&.visible?
+        @view_timeouts.delete(text_view.object_id)
         false  # Stop the timeout if view is destroyed
       else
         update_log_view(text_view, buffer) rescue nil
         true # Keep the timeout active
       end
     end
+    
+    @view_timeouts[text_view.object_id] = timeout_id
 
     # Clean up timeout when view is destroyed
     text_view.signal_connect("destroy") do
-      GLib::Source.remove(timeout_id)
+      if timeout_id = @view_timeouts.delete(text_view.object_id)
+        GLib::Source.remove(timeout_id) rescue nil
+      end
     end
 
     scroll.add(text_view)
