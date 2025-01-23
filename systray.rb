@@ -59,6 +59,7 @@ class DiscourseSystemTray
     config = { path: path }
     config[:window_geometry] = window_geometry if window_geometry
     File.write(CONFIG_FILE, JSON.generate(config))
+    nil # Prevent return value from being printed
   end
 
   def self.load_config
