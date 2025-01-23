@@ -33,12 +33,25 @@ class DiscourseSystemTray
     @indicator.signal_connect("popup-menu") do |tray, button, time|
       menu = Gtk::Menu.new
 
-      start_item = Gtk::MenuItem.new(label: "Start Discourse")
-      stop_item = Gtk::MenuItem.new(label: "Stop Discourse")
-      quit_item = Gtk::MenuItem.new(label: "Quit")
+      # Create menu items with icons
+      start_item = Gtk::ImageMenuItem.new(label: "Start Discourse")
+      start_item.image = Gtk::Image.new(icon_name: "media-playback-start", size: :menu)
+      
+      stop_item = Gtk::ImageMenuItem.new(label: "Stop Discourse")
+      stop_item.image = Gtk::Image.new(icon_name: "media-playback-stop", size: :menu)
+      
+      status_item = Gtk::ImageMenuItem.new(label: "Show Status")
+      status_item.image = Gtk::Image.new(icon_name: "utilities-system-monitor", size: :menu)
+      
+      quit_item = Gtk::ImageMenuItem.new(label: "Quit")
+      quit_item.image = Gtk::Image.new(icon_name: "application-exit", size: :menu)
 
+      # Add items in new order
       menu.append(start_item)
       menu.append(stop_item)
+      menu.append(Gtk::SeparatorMenuItem.new)
+      menu.append(status_item)
+      menu.append(Gtk::SeparatorMenuItem.new)
       menu.append(quit_item)
 
       start_item.signal_connect("activate") do
@@ -58,10 +71,6 @@ class DiscourseSystemTray
         Gtk.main_quit
       end
 
-      # Add status menu item
-      status_item = Gtk::MenuItem.new(label: "Show Status")
-      menu.append(Gtk::SeparatorMenuItem.new)
-      menu.append(status_item)
 
       status_item.signal_connect("activate") { show_status_window }
 
