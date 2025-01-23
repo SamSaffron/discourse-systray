@@ -273,7 +273,7 @@ class DiscourseSystemTray
 
     @status_window = Gtk::Window.new("Discourse Status")
     @status_window.set_wmclass("discourse-status", "Discourse Status")
-    
+
     # Load saved geometry or use defaults
     config = self.class.load_config
     if config["window_geometry"]
@@ -480,10 +480,10 @@ class DiscourseSystemTray
 
   def save_window_geometry
     return unless @status_window&.visible? && @status_window.window
-    
+
     x, y = @status_window.position
     width, height = @status_window.size
-    
+
     self.class.save_config(
       path: @discourse_path,
       window_geometry: {
@@ -504,6 +504,3 @@ class DiscourseSystemTray
     Gtk.main
   end
 end
-
-app = DiscourseSystemTray.new
-app.run
