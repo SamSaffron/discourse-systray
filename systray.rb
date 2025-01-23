@@ -268,7 +268,8 @@ class DiscourseSystemTray
     box = Gtk::Box.new(:horizontal, 5)
     label = Gtk::Label.new(text)
     status = Gtk::Label.new
-    status.override_color(:normal, Gdk::RGBA.new(running ? 0.2, 0.8, 0.2, 1 : 0.8, 0.2, 0.2, 1))
+    color = running ? Gdk::RGBA.new(0.2, 0.8, 0.2, 1) : Gdk::RGBA.new(0.8, 0.2, 0.2, 1)
+    status.override_color(:normal, color)
     status.text = running ? "●" : "○"
     box.pack_start(label, false, false, 0)
     box.pack_start(status, false, false, 0)
