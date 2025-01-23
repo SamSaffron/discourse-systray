@@ -256,6 +256,9 @@ class DiscourseSystemTray
     @status_window = Gtk::Window.new("Discourse Status")
     @status_window.set_default_size(800, 600)
     
+    # Set window class and title for i3 window rules
+    @status_window.set_wmclass("discourse-status", "Discourse Status")
+    
     # Handle window destruction and hide
     @status_window.signal_connect("delete-event") do
       @status_window.hide
