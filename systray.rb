@@ -5,16 +5,14 @@ require "optparse"
 DISCOURSE_PATH = "/home/sam/Source/discourse"
 
 # Parse command line options
-OPTIONS = {
-  debug: false
-}
+OPTIONS = { debug: false }
 
-OptionParser.new do |opts|
-  opts.banner = "Usage: systray.rb [options]"
-  opts.on("--debug", "Enable debug mode") do
-    OPTIONS[:debug] = true
+OptionParser
+  .new do |opts|
+    opts.banner = "Usage: systray.rb [options]"
+    opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
   end
-end.parse!
+  .parse!
 
 class DiscourseSystemTray
   BUFFER_SIZE = 2000
@@ -74,12 +72,8 @@ class DiscourseSystemTray
   def start_discourse
     @ember_output.clear
     @unicorn_output.clear
-    
+
     Dir.chdir(DISCOURSE_PATH) do
-      # Clean up stale unicorn pid file if it exists
-      pid_file = "tmp/pids/unicorn.pid"
-      File.delete(pid_file) if File.exist?(pid_file)
-      
       @processes[:ember] = start_process("bin/ember-cli")
       @processes[:unicorn] = start_process("bin/unicorn")
     end
@@ -107,7 +101,10 @@ class DiscourseSystemTray
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
         # Force GUI update
-        GLib::Idle.add { update_all_views; false }
+        GLib::Idle.add do
+          update_all_views
+          false
+        end
       end
     end
 
@@ -119,7 +116,10 @@ class DiscourseSystemTray
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
         # Force GUI update
-        GLib::Idle.add { update_all_views; false }
+        GLib::Idle.add do
+          update_all_views
+          false
+        end
       end
     end
 
@@ -150,7 +150,7 @@ class DiscourseSystemTray
 
   def update_all_views
     return unless @ember_view && @unicorn_view
-    
+
     update_log_view(@ember_view.child, @ember_output)
     update_log_view(@unicorn_view.child, @unicorn_output)
   end
@@ -225,7 +225,6 @@ class DiscourseSystemTray
           text_view.buffer.insert(iter, plain || "")
         end
       end
-
     end
 
     # Scroll to bottom if near bottom
