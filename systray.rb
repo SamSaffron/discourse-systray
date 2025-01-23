@@ -22,7 +22,7 @@ class DiscourseSystemTray
 
   def self.load_or_prompt_config
     FileUtils.mkdir_p(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
-    
+
     if OPTIONS[:path]
       save_config(path: OPTIONS[:path])
       return OPTIONS[:path]
@@ -34,15 +34,13 @@ class DiscourseSystemTray
     end
 
     # Show dialog to get path
-    dialog = Gtk::FileChooserDialog.new(
-      title: "Select Discourse Directory",
-      parent: nil,
-      action: :select_folder,
-      buttons: [
-        ["Cancel", :cancel],
-        ["Select", :accept]
-      ]
-    )
+    dialog =
+      Gtk::FileChooserDialog.new(
+        title: "Select Discourse Directory",
+        parent: nil,
+        action: :select_folder,
+        buttons: [["Cancel", :cancel], ["Select", :accept]]
+      )
 
     path = nil
     if dialog.run == :accept
@@ -138,9 +136,7 @@ class DiscourseSystemTray
     Dir.chdir(@discourse_path) do
       @processes[:ember] = start_process("bin/ember-cli")
       @ember_running = true
-      @processes[:unicorn] = start_process(
-        "RAILS_ENV=development bin/unicorn -c config/unicorn.conf.rb"
-      )
+      @processes[:unicorn] = start_process("bin/unicorn")
       @unicorn_running = true
       update_tab_labels if @notebook
     end
