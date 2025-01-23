@@ -1,5 +1,6 @@
 require "gtk3"
 require "open3"
+require "terminfo"
 
 DISCOURSE_PATH = "/home/sam/Source/discourse"
 
@@ -119,9 +120,78 @@ class DiscourseSystemTray
     scroll = Gtk::ScrolledWindow.new
     text_view = Gtk::TextView.new
     text_view.editable = false
-    text_view.buffer.text = buffer.join("\n")
+    
+    # Create text tags for colors
+    tag_table = text_view.buffer.tag_table
+    create_ansi_tags(text_view.buffer)
+    
+    # Initial text
+    update_log_view(text_view, buffer)
+    
+    # Set up periodic refresh
+    GLib::Timeout.add(1000) do
+      update_log_view(text_view, buffer)
+      true # Keep the timeout active
+    end
+    
     scroll.add(text_view)
     scroll
+  end
+
+  def create_ansi_tags(buffer)
+    # Basic ANSI colors
+    {
+      '31' => 'red',
+      '32' => 'green',
+      '33' => 'yellow',
+      '34' => 'blue',
+      '35' => 'magenta',
+      '36' => 'cyan',
+      '37' => 'white'
+    }.each do |code, color|
+      buffer.create_tag("ansi_#{code}", foreground: color)
+    end
+    
+    # Add more tags for bold, etc
+    buffer.create_tag("bold", weight: Pango::WEIGHT_BOLD)
+  end
+  
+  def update_log_view(text_view, buffer)
+    return if buffer.empty?
+    
+    text_view.buffer.text = ""
+    iter = text_view.buffer.get_iter_at_offset(0)
+    
+    buffer.each do |line|
+      # Parse ANSI sequences
+      segments = line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
+      
+      segments.each do |codes, text, clear_line, plain|
+        if codes
+          codes.split(';').each do |code|
+            case code
+            when '1'
+              text_view.buffer.apply_tag("bold", iter, iter)
+            when '31'..'37'
+              text_view.buffer.apply_tag("ansi_#{code}", iter, iter)
+            end
+          end
+          text_view.buffer.insert(iter, text)
+        elsif clear_line
+          text_view.buffer.insert(iter, clear_line)
+        else
+          text_view.buffer.insert(iter, plain || '')
+        end
+      end
+      
+      text_view.buffer.insert(iter, "\n")
+    end
+    
+    # Scroll to bottom if near bottom
+    adj = text_view.parent.vadjustment
+    if adj.value >= adj.upper - adj.page_size - 50
+      adj.value = adj.upper - adj.page_size
+    end
   end
 
   def set_icon(status)
