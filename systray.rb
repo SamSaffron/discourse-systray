@@ -2,23 +2,68 @@ require "gtk3"
 require "open3"
 require "optparse"
 require "timeout"
-
-DISCOURSE_PATH = "/home/sam/Source/discourse"
+require "fileutils"
+require "json"
 
 # Parse command line options
-OPTIONS = { debug: false }
+OPTIONS = { debug: false, path: nil }
 
 OptionParser
   .new do |opts|
     opts.banner = "Usage: systray.rb [options]"
     opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
+    opts.on("--path PATH", "Set Discourse path") { |p| OPTIONS[:path] = p }
   end
   .parse!
 
 class DiscourseSystemTray
+  CONFIG_DIR = File.expand_path("~/.config/discourse-systray")
+  CONFIG_FILE = File.join(CONFIG_DIR, "config.json")
+
+  def self.load_or_prompt_config
+    FileUtils.mkdir_p(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
+    
+    if OPTIONS[:path]
+      save_config(path: OPTIONS[:path])
+      return OPTIONS[:path]
+    end
+
+    if File.exist?(CONFIG_FILE)
+      config = JSON.parse(File.read(CONFIG_FILE))
+      return config["path"] if config["path"] && Dir.exist?(config["path"])
+    end
+
+    # Show dialog to get path
+    dialog = Gtk::FileChooserDialog.new(
+      title: "Select Discourse Directory",
+      parent: nil,
+      action: :select_folder,
+      buttons: [
+        ["Cancel", :cancel],
+        ["Select", :accept]
+      ]
+    )
+
+    path = nil
+    if dialog.run == :accept
+      path = dialog.filename
+      save_config(path: path)
+    else
+      puts "No Discourse path specified. Exiting."
+      exit 1
+    end
+
+    dialog.destroy
+    path
+  end
+
+  def self.save_config(path:)
+    File.write(CONFIG_FILE, JSON.generate({ path: path }))
+  end
   BUFFER_SIZE = 2000
 
   def initialize
+    @discourse_path = self.class.load_or_prompt_config
     @indicator = Gtk::StatusIcon.new
     @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: "discourse.png")
     @indicator.tooltip_text = "Discourse Manager"
@@ -90,7 +135,7 @@ class DiscourseSystemTray
     @ember_output.clear
     @unicorn_output.clear
 
-    Dir.chdir(DISCOURSE_PATH) do
+    Dir.chdir(@discourse_path) do
       @processes[:ember] = start_process("bin/ember-cli")
       @ember_running = true
       @processes[:unicorn] = start_process(
