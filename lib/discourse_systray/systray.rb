@@ -410,6 +410,12 @@ class DiscourseSystemTray
     return unless text_view.visible? && text_view.parent&.visible?
     return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
+    # Save current scroll position and check if we're at bottom
+    adj = text_view&.parent&.vadjustment
+    return unless adj
+    was_at_bottom = (adj.value >= adj.upper - adj.page_size - 50)
+    old_value = adj.value
+
     text_view.buffer.text = ""
     iter = text_view.buffer.get_iter_at(offset: 0)
 
@@ -438,12 +444,18 @@ class DiscourseSystemTray
       end
     end
 
-    # Scroll to bottom if near bottom
-    if text_view&.parent&.vadjustment
-      adj = text_view.parent.vadjustment
-      if adj.value >= adj.upper - adj.page_size - 50
-        adj.value = adj.upper - adj.page_size
-      end
+    # Wait for GTK to update the view
+    while Gtk.events_pending?
+      Gtk.main_iteration
+    end
+
+    # Restore scroll position
+    if was_at_bottom
+      # If we were at bottom, stay at bottom
+      adj.value = adj.upper - adj.page_size
+    else
+      # Otherwise restore previous position
+      adj.value = old_value
     end
   end
 
