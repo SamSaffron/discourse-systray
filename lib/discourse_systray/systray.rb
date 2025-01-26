@@ -641,8 +641,7 @@ module ::DiscourseSystray
         pipe_fd = nil
         
         begin
-          pipe_fd = IO.sysopen(PIPE_PATH, "r")
-          pipe_io = IO.new(pipe_fd, "r")
+          pipe = File.open(PIPE_PATH, "r")
           
           # Watch for pipe deletion
           notifier.watch(File.dirname(PIPE_PATH), :delete) do |event|
@@ -656,8 +655,8 @@ module ::DiscourseSystray
           reader = Thread.new do
             begin
               while true
-                if IO.select([pipe_io], nil, nil, 0.5)
-                  while line = pipe_io.gets
+                if IO.select([pipe], nil, nil, 0.5)
+                  while line = pipe.gets
                     puts line
                     STDOUT.flush
                   end
@@ -682,8 +681,7 @@ module ::DiscourseSystray
           puts "Pipe doesn't exist, exiting."
           exit 1
         ensure
-          pipe_io&.close
-          pipe_fd&.close if pipe_fd
+          pipe&.close
           notifier&.close
         end
       else
