@@ -211,10 +211,11 @@ class DiscourseSystemTray
         end
       end
 
-    # Monitor stdout
+    # Monitor stdout - send to both console and UX buffer
     Thread.new do
       while line = stdout.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+        puts line if OPTIONS[:console]  # Send to console
         puts "[OUT] #{line}" if OPTIONS[:debug]
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
@@ -226,10 +227,11 @@ class DiscourseSystemTray
       end
     end
 
-    # Monitor stderr
+    # Monitor stderr - send to both console and UX buffer
     Thread.new do
       while line = stderr.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+        STDERR.puts line if OPTIONS[:console]  # Send to console
         puts "[ERR] #{line}" if OPTIONS[:debug]
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
@@ -540,17 +542,23 @@ class DiscourseSystemTray
   def start_console_process(command)
     stdin, stdout, stderr, wait_thr = Open3.popen3(command)
 
-    # Pipe stdout directly to console
+    # Pipe stdout to console and add to buffer
     Thread.new do
       while line = stdout.gets
+        buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
         print line
+        buffer << line
+        buffer.shift if buffer.size > BUFFER_SIZE
       end
     end
 
-    # Pipe stderr directly to console
+    # Pipe stderr to console and add to buffer
     Thread.new do
       while line = stderr.gets
-        print line
+        buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+        STDERR.print line
+        buffer << line
+        buffer.shift if buffer.size > BUFFER_SIZE
       end
     end
 
