@@ -622,14 +622,13 @@ module ::DiscourseSystray
 
     def run
       if OPTIONS[:attach]
-        require 'rb-inotify'
-        
+        require "rb-inotify"
+
         notifier = INotify::Notifier.new
-        pipe_fd = nil
-        
+
         begin
           pipe = File.open(PIPE_PATH, "r")
-          
+
           # Watch for pipe deletion
           notifier.watch(File.dirname(PIPE_PATH), :delete) do |event|
             if event.name == File.basename(PIPE_PATH)
@@ -639,35 +638,36 @@ module ::DiscourseSystray
           end
 
           # Read from pipe in a separate thread
-          reader = Thread.new do
-            begin
-              while true
-                if IO.select([pipe], nil, nil, 0.5)
-                  while line = pipe.gets
-                    puts line
-                    STDOUT.flush
+          reader =
+            Thread.new do
+              begin
+                while true
+                  if IO.select([pipe], nil, nil, 0.5)
+                    while line = pipe.gets
+                      puts line
+                      STDOUT.flush
+                    end
+                  end
+
+                  sleep 0.1
+                  unless File.exist?(PIPE_PATH)
+                    puts "Pipe was deleted, exiting."
+                    exit 0
                   end
                 end
-                
-                # Check if pipe still exists
-                unless File.exist?(PIPE_PATH)
-                  puts "Pipe was deleted, exiting."
-                  exit 0
-                end
+              rescue EOFError, IOError
+                puts "Pipe closed, exiting."
+                exit 0
               end
-            rescue EOFError, IOError
-              puts "Pipe closed, exiting."
-              exit 0
             end
-          end
 
           # Handle notifications in main thread
           notifier.run
-          
         rescue Errno::ENOENT
           puts "Pipe doesn't exist, exiting."
           exit 1
         ensure
+          reader&.kill
           pipe&.close
           notifier&.close
         end
@@ -683,7 +683,6 @@ module ::DiscourseSystray
         # Set up cleanup on exit
         at_exit do
           begin
-            publish_to_pipe("EOF") if File.exist?(PIPE_PATH)
             File.unlink(PIPE_PATH) if File.exist?(PIPE_PATH)
             File.unlink(PID_FILE) if File.exist?(PID_FILE)
           rescue StandardError => e
