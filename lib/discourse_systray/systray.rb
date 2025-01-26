@@ -579,8 +579,7 @@ class DiscourseSystemTray
         existing_pid = File.read(pid_file).strip.to_i
         if system("ps -p #{existing_pid} > /dev/null 2>&1")
           puts "Attaching to existing systray with PID=#{existing_pid}"
-          # On i3, we can try focusing the process with i3-msg
-          system("i3-msg '[pid=#{existing_pid}] focus'") if system("which i3-msg >/dev/null 2>&1")
+          puts "i3 doesn't support focusing by PID. Window focus will not be changed."
           exit 0
         else
           puts "No running systray found at PID=#{existing_pid}, starting new instance..."
