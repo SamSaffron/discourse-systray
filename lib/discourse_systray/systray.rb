@@ -635,24 +635,56 @@ module ::DiscourseSystray
 
     def run
       if OPTIONS[:attach]
+        require 'rb-inotify'
+        
+        notifier = INotify::Notifier.new
+        pipe_fd = nil
+        
         begin
-          File.open(PIPE_PATH, "r") do |pipe|
-            loop do
-              if IO.select([pipe], nil, nil, 0.5)
-                while line = pipe.gets
-                  if line.strip == "EOF"
-                    puts "Systray process terminated."
-                    exit 0
-                  end
-                  puts line
-                end
-                STDOUT.flush
-                sleep 0.1
-              end
+          pipe_fd = IO.sysopen(PIPE_PATH, "r")
+          pipe_io = IO.new(pipe_fd, "r")
+          
+          # Watch for pipe deletion
+          notifier.watch(File.dirname(PIPE_PATH), :delete) do |event|
+            if event.name == File.basename(PIPE_PATH)
+              puts "Pipe was deleted, exiting."
+              exit 0
             end
           end
-        rescue Errno::ENOENT, IOError => e
-          puts "Pipe closed or deleted, exiting: #{e}" if OPTIONS[:debug]
+
+          # Read from pipe in a separate thread
+          reader = Thread.new do
+            begin
+              while true
+                if IO.select([pipe_io], nil, nil, 0.5)
+                  while line = pipe_io.gets
+                    puts line
+                    STDOUT.flush
+                  end
+                end
+                
+                # Check if pipe still exists
+                unless File.exist?(PIPE_PATH)
+                  puts "Pipe was deleted, exiting."
+                  exit 0
+                end
+              end
+            rescue EOFError, IOError
+              puts "Pipe closed, exiting."
+              exit 0
+            end
+          end
+
+          # Handle notifications in main thread
+          notifier.run
+          
+        rescue Errno::ENOENT
+          puts "Pipe doesn't exist, exiting."
+          exit 1
+        ensure
+          pipe_io&.close
+          pipe_fd&.close if pipe_fd
+          notifier&.close
         end
       else
         return if self.class.running?
