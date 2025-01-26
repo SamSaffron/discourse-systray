@@ -3,54 +3,57 @@
 
 require "discourse_systray/systray"
 
-if $0 == __FILE__
-  DiscourseSystemTray.new.run_discourse_systray
-end
-
 class DiscourseSystemTray
   def run_discourse_systray
-  systray = DiscourseSystemTray.new
+    systray = DiscourseSystemTray.new
 
-  if DiscourseSystemTray::OPTIONS[:attach]
-    begin
-      File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
-        while line = pipe.gets
-          print line
+    if DiscourseSystemTray::OPTIONS[:attach]
+      begin
+        File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
+          while line = pipe.gets
+            print line
+          end
         end
+      rescue Interrupt
+        exit 0
       end
-    rescue Interrupt
       exit 0
     end
-    exit 0
-  end
 
-  # Register this instance
-  File.write(DiscourseSystemTray::PID_FILE, Process.pid)
+    # Register this instance
+    File.write(DiscourseSystemTray::PID_FILE, Process.pid)
 
-  # Create command pipe
-  File.unlink(DiscourseSystemTray::PIPE_PATH) rescue nil
-  File.mkfifo(DiscourseSystemTray::PIPE_PATH) rescue nil
+    # Create command pipe
+    begin
+      File.unlink(DiscourseSystemTray::PIPE_PATH)
+    rescue StandardError
+      nil
+    end
+    begin
+      File.mkfifo(DiscourseSystemTray::PIPE_PATH)
+    rescue StandardError
+      nil
+    end
 
-  # Start command listener
-  Thread.new do
-    File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
-      pipe.each_line do |line|
-        systray.handle_command(line.strip)
+    # Start command listener
+    Thread.new do
+      File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
+        pipe.each_line { |line| systray.handle_command(line.strip) }
       end
     end
-  end
 
-  if DiscourseSystemTray::OPTIONS[:console]
-    Dir.chdir(systray.discourse_path) do
-      ps = []
-      ps << systray.start_process("bin/ember-cli", console: true)
-      ps << systray.start_process("bin/unicorn", console: true)
-      # Wait for both processes to finish
-      ps.each { |p| p[:thread].join }
+    if DiscourseSystemTray::OPTIONS[:console]
+      Dir.chdir(systray.discourse_path) do
+        ps = []
+        ps << systray.start_process("bin/ember-cli", console: true)
+        ps << systray.start_process("bin/unicorn", console: true)
+        # Wait for both processes to finish
+        ps.each { |p| p[:thread].join }
+      end
+    else
+      systray.init_systray
+      Gtk.main
     end
-  else
-    systray.init_systray
-    Gtk.main
   end
 end
 
