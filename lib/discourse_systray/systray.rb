@@ -171,8 +171,9 @@ module ::DiscourseSystray
     end
 
     def cleanup
-      # Clean up pipe and pid file
+      # Signal EOF and clean up pipe and pid file
       begin
+        publish_to_pipe("EOF") if File.exist?(PIPE_PATH)
         File.unlink(PIPE_PATH)
       rescue StandardError
         nil
@@ -639,6 +640,10 @@ module ::DiscourseSystray
             loop do
               if IO.select([pipe], nil, nil, 0.5)
                 while line = pipe.gets
+                  if line.strip == "EOF"
+                    puts "Systray process terminated."
+                    exit 0
+                  end
                   puts line
                 end
                 STDOUT.flush
