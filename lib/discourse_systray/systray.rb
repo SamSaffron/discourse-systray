@@ -632,8 +632,24 @@ module ::DiscourseSystray
 
     attr_reader :discourse_path
 
+    def self.run
+      new.run
+    end
+
     def run
-      run_discourse_systray
+      return if self.class.running? && !OPTIONS[:attach]
+      
+      # Write PID file
+      File.write(PID_FILE, Process.pid.to_s)
+      
+      # Initialize GTK
+      Gtk.init
+      
+      # Setup systray icon and menu
+      init_systray
+      
+      # Start GTK main loop
+      Gtk.main
     end
 
     def publish_to_pipe(msg)

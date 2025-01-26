@@ -3,4 +3,4 @@
 
 require "discourse_systray/systray"
 
-DiscourseSystray::Systray.run if $0 == __FILE__
+DiscourseSystray::Systray.run
