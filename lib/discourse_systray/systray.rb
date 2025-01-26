@@ -16,6 +16,7 @@ class DiscourseSystemTray
         opts.banner = "Usage: systray.rb [options]"
         opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
         opts.on("--path PATH", "Set Discourse path") { |p| OPTIONS[:path] = p }
+        opts.on("--console", "Enable console mode") { OPTIONS[:console] = true }
       end
       .parse!
     FileUtils.mkdir_p(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
@@ -193,7 +194,8 @@ class DiscourseSystemTray
     end
   end
 
-  def start_process(command)
+  def start_process(command, console: false)
+    return start_console_process(command) if console
     stdin, stdout, stderr, wait_thr = Open3.popen3(command)
 
     # Create a monitor thread that will detect if process dies
@@ -535,7 +537,43 @@ class DiscourseSystemTray
     @indicator.pixbuf = GdkPixbuf::Pixbuf.new(file: icon_path)
   end
 
+  def start_console_process(command)
+    stdin, stdout, stderr, wait_thr = Open3.popen3(command)
+
+    # Pipe stdout directly to console
+    Thread.new do
+      while line = stdout.gets
+        print line
+      end
+    end
+
+    # Pipe stderr directly to console
+    Thread.new do
+      while line = stderr.gets
+        print line
+      end
+    end
+
+    {
+      pid: wait_thr.pid,
+      stdin: stdin,
+      stdout: stdout,
+      stderr: stderr,
+      thread: wait_thr
+    }
+  end
+
   def run
-    Gtk.main
+    if OPTIONS[:console]
+      Dir.chdir(@discourse_path) do
+        ps = []
+        ps << start_process("bin/ember-cli", console: true)
+        ps << start_process("bin/unicorn", console: true)
+        # Wait for both processes to finish
+        ps.each { |p| p[:thread].join }
+      end
+    else
+      Gtk.main
+    end
   end
 end
