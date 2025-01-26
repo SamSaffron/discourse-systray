@@ -593,7 +593,7 @@ class DiscourseSystemTray
   attr_reader :discourse_path
 
   def run
-    # Left empty intentionally - execution logic moved to binary
+    run_discourse_systray
   end
 
   def publish_to_pipe(msg)

@@ -9,4 +9,5 @@ require "discourse_systray/systray"
 # swap back env so we are not infected
 ENV.replace(env)
 
-require_relative "../bin/discourse-systray"
+# Run the systray
+DiscourseSystemTray.new.run_discourse_systray
