@@ -591,13 +591,8 @@ class DiscourseSystemTray
 
   def run
     if OPTIONS[:attach]
-      if self.class.running?
-        puts "Discourse systray is already running"
-        exit 1
-      else
-        puts "No running instance found"
-        exit 1
-      end
+      puts PIPE_PATH
+      exit 0
     end
 
     # Register this instance
