@@ -82,6 +82,9 @@ class DiscourseSystemTray
     @processes = {}
     @ember_running = false
     @unicorn_running = false
+    # Maintain line offset counters
+    @ember_line_count = 0
+    @unicorn_line_count = 0
     @status_window = nil
 
     # Create right-click menu
@@ -414,58 +417,55 @@ class DiscourseSystemTray
     return unless text_view.visible? && text_view.parent&.visible?
     return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
-    # Generate new content first
-    new_text = ""
-    new_tags = []
-    
-    buffer.each do |line|
-      start_pos = new_text.length
-      segments = line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
-      
-      segments.each do |codes, text, clear_line, plain|
+    # Determine which offset counter to use
+    offset_var = (buffer.equal?(@ember_output) ? :@ember_line_count : :@unicorn_line_count)
+    current_offset = instance_variable_get(offset_var)
+
+    # Don't call if we've already processed all lines or if text_view is invalid
+    return if buffer.size <= current_offset
+    return if text_view.nil? || text_view.destroyed?
+    return unless text_view.visible? && text_view.parent&.visible?
+    return if text_view.buffer.nil? || text_view.buffer.destroyed?
+
+    adj = text_view&.parent&.vadjustment
+    was_at_bottom = (adj && adj.value >= adj.upper - adj.page_size - 50)
+    old_value = adj ? adj.value : 0
+
+    # Process only the new lines
+    new_lines = buffer[current_offset..-1]
+    new_lines.each do |line|
+      ansi_segments = line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
+      segment_start_iter = text_view.buffer.end_iter.dup
+
+      ansi_segments.each do |codes, text_part, clear_part, plain|
+        chunk = text_part || clear_part || plain.to_s
+        chunk_start_iter = text_view.buffer.end_iter
+        text_view.buffer.insert(chunk_start_iter, chunk)
+
+        # For each ANSI code, apply tags
         if codes
-          segment_start = new_text.length
-          new_text << text
           codes.split(";").each do |code|
             case code
             when "1"
-              new_tags << ["bold", segment_start, new_text.length]
+              text_view.buffer.apply_tag("bold", chunk_start_iter, text_view.buffer.end_iter)
             when "31".."37"
-              new_tags << ["ansi_#{code}", segment_start, new_text.length]
+              text_view.buffer.apply_tag("ansi_#{code}", chunk_start_iter, text_view.buffer.end_iter)
             end
           end
-        elsif clear_line
-          new_text << clear_line
-        else
-          new_text << (plain || "")
         end
       end
     end
 
-    # Only update if content has changed
-    return if new_text == text_view.buffer.text
-
-    # Save scroll position if needed
-    adj = text_view&.parent&.vadjustment
-    return unless adj
-    was_at_bottom = (adj.value >= adj.upper - adj.page_size - 50)
-    old_value = adj.value
-
-    # Update content
-    text_view.buffer.text = new_text
-    
-    # Apply tags
-    new_tags.each do |tag_name, start_pos, end_pos|
-      start_iter = text_view.buffer.get_iter_at(offset: start_pos)
-      end_iter = text_view.buffer.get_iter_at(offset: end_pos)
-      text_view.buffer.apply_tag(tag_name, start_iter, end_iter)
-    end
+    # Update our offset counter
+    instance_variable_set(offset_var, buffer.size)
 
     # Restore scroll position
-    if was_at_bottom
-      adj.value = adj.upper - adj.page_size
-    else
-      adj.value = old_value
+    if adj
+      if was_at_bottom
+        adj.value = adj.upper - adj.page_size
+      else
+        adj.value = old_value
+      end
     end
   end
 
