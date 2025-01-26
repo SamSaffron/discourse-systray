@@ -633,19 +633,29 @@ module ::DiscourseSystray
     end
 
     def run
-      return if self.class.running? && !OPTIONS[:attach]
-      
-      # Write PID file
-      File.write(PID_FILE, Process.pid.to_s)
-      
-      # Initialize GTK
-      Gtk.init
-      
-      # Setup systray icon and menu
-      init_systray
-      
-      # Start GTK main loop
-      Gtk.main
+      if OPTIONS[:attach]
+        # In attach mode, just monitor the pipe
+        loop do
+          if File.exist?(PIPE_PATH)
+            File.readlines(PIPE_PATH).each { |line| puts line }
+          end
+          sleep 0.1
+        end
+      else
+        return if self.class.running?
+        
+        # Write PID file
+        File.write(PID_FILE, Process.pid.to_s)
+        
+        # Initialize GTK
+        Gtk.init
+        
+        # Setup systray icon and menu
+        init_systray
+        
+        # Start GTK main loop
+        Gtk.main
+      end
     end
 
     def publish_to_pipe(msg)
