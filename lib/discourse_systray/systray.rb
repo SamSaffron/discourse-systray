@@ -634,19 +634,16 @@ module ::DiscourseSystray
 
     def run
       if OPTIONS[:attach]
-        # In attach mode, just monitor the pipe
-        # Create pipe if it doesn't exist
-        system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
-        
-        # Create pipe if it doesn't exist
-        system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
-        
-        # Single continuous read from pipe
         begin
           File.open(PIPE_PATH, "r") do |pipe|
-            while line = pipe.gets
-              puts line
-              STDOUT.flush
+            loop do
+              if IO.select([pipe], nil, nil, 0.5)
+                while line = pipe.gets
+                  puts line
+                end
+                STDOUT.flush
+                sleep 0.1
+              end
             end
           end
         rescue Errno::ENOENT, IOError => e
@@ -654,16 +651,18 @@ module ::DiscourseSystray
         end
       else
         return if self.class.running?
-        
+
+        system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
+
         # Write PID file
         File.write(PID_FILE, Process.pid.to_s)
-        
+
         # Initialize GTK
         Gtk.init
-        
+
         # Setup systray icon and menu
         init_systray
-        
+
         # Start GTK main loop
         Gtk.main
       end

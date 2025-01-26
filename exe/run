@@ -10,4 +10,4 @@ require "discourse_systray/systray"
 ENV.replace(env)
 
 # Run the systray
-DiscourseSystray.run
+DiscourseSystray::Systray.new.run
