@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name = "discourse-systray"
-  spec.version = "0.1.1"
+  spec.version = "0.1.2"
   spec.authors = ["Sam Saffron"]
   spec.email = ["sam.saffron@gmail.com"]
 
@@ -19,7 +19,7 @@ Gem::Specification.new do |spec|
   spec.files =
     Dir
       .glob("{bin,lib,assets}/**/*", File::FNM_DOTMATCH)
-      .reject { |f| File.directory?(f) || f.end_with?(".gem") } + 
+      .reject { |f| File.directory?(f) || f.end_with?(".gem") } +
       %w[README.md LICENSE.txt]
   spec.bindir = "bin"
   spec.executables = ["discourse-systray"]
