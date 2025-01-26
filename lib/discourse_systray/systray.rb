@@ -574,18 +574,14 @@ class DiscourseSystemTray
 
   def run
     if OPTIONS[:attach]
-      pid_file = "/tmp/discourse_systray.pid"
-      if File.exist?(pid_file)
-        existing_pid = File.read(pid_file).strip.to_i
-        if system("ps -p #{existing_pid} > /dev/null 2>&1")
-          puts "Attaching to existing systray with PID=#{existing_pid}"
-          puts "i3 doesn't support focusing by PID. Window focus will not be changed."
-          exit 0
-        else
-          puts "No running systray found at PID=#{existing_pid}, starting new instance..."
+      pipe_path = "/tmp/discourse_systray_cmd"
+      File.mkfifo(pipe_path) unless File.exist?(pipe_path)
+      Thread.new do
+        File.open(pipe_path, "r") do |pipe|
+          pipe.each_line do |line|
+            handle_command(line.strip)
+          end
         end
-      else
-        puts "No systray PID file found, starting new instance..."
       end
     end
 
@@ -602,5 +598,9 @@ class DiscourseSystemTray
       File.write(pid_file, Process.pid) rescue nil
       Gtk.main
     end
+  end
+
+  def handle_command(cmd)
+    puts "Received command: #{cmd}"
   end
 end
