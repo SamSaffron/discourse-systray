@@ -638,10 +638,21 @@ module ::DiscourseSystray
         # Create pipe if it doesn't exist
         system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
         
-        # Open pipe in read-only mode and read continuously
-        File.open(PIPE_PATH, "r") do |pipe|
-          while line = pipe.gets
-            puts line
+        loop do
+          begin
+            # Open pipe in read-only mode
+            File.open(PIPE_PATH, "r") do |pipe|
+              while line = pipe.gets
+                puts line
+              end
+            end
+          rescue Errno::ENOENT, IOError => e
+            # If pipe is deleted or parent process exits, we should exit too
+            puts "Pipe closed or deleted, exiting: #{e}" if OPTIONS[:debug]
+            break
+          rescue StandardError => e
+            puts "Error reading pipe: #{e}" if OPTIONS[:debug]
+            sleep 0.1  # Avoid tight loop if there are temporary errors
           end
         end
       else
