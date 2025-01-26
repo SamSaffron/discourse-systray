@@ -486,28 +486,30 @@ class DiscourseSystemTray
   end
 
   def update_tab_labels
-    return unless @notebook
-    @ember_label.children[1].text = @ember_running ? "●" : "○"
-    @ember_label.children[1].override_color(
-      :normal,
-      Gdk::RGBA.new(
-        @ember_running ? 0.2 : 0.8,
-        @ember_running ? 0.8 : 0.2,
-        0.2,
-        1
-      )
-    )
+    return unless @notebook && !@notebook.destroyed?
+    return unless @ember_label && @unicorn_label
+    return if @ember_label.destroyed? || @unicorn_label.destroyed?
 
-    @unicorn_label.children[1].text = @unicorn_running ? "●" : "○"
-    @unicorn_label.children[1].override_color(
-      :normal,
-      Gdk::RGBA.new(
-        @unicorn_running ? 0.2 : 0.8,
-        @unicorn_running ? 0.8 : 0.2,
-        0.2,
-        1
-      )
-    )
+    [@ember_label, @unicorn_label].each do |label|
+      next unless label.children && label.children.length > 1
+      next if label.children[1].destroyed?
+
+      is_running = label == @ember_label ? @ember_running : @unicorn_running
+      begin
+        label.children[1].text = is_running ? "●" : "○"
+        label.children[1].override_color(
+          :normal,
+          Gdk::RGBA.new(
+            is_running ? 0.2 : 0.8,
+            is_running ? 0.8 : 0.2,
+            0.2,
+            1
+          )
+        )
+      rescue StandardError => e
+        puts "Error updating label: #{e}" if OPTIONS[:debug]
+      end
+    end
   end
 
   def save_window_geometry
