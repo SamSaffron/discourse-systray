@@ -70,25 +70,26 @@ class DiscourseSystemTray
   BUFFER_SIZE = 2000
 
   def initialize
-    @discourse_path = self.class.load_or_prompt_config
-    @indicator = Gtk::StatusIcon.new
-    @indicator.pixbuf =
-      GdkPixbuf::Pixbuf.new(
-        file: File.join(File.dirname(__FILE__), "../../assets/discourse.png")
-      )
-    @indicator.tooltip_text = "Discourse Manager"
+    @discourse_path = self.class.load_or_prompt_config unless OPTIONS[:attach]
     @running = false
     @ember_output = []
     @unicorn_output = []
     @processes = {}
     @ember_running = false
     @unicorn_running = false
-    # Maintain line offset counters
     @ember_line_count = 0
     @unicorn_line_count = 0
     @status_window = nil
+  end
 
-    # Create right-click menu
+  def init_systray
+    @indicator = Gtk::StatusIcon.new
+    @indicator.pixbuf =
+      GdkPixbuf::Pixbuf.new(
+        file: File.join(File.dirname(__FILE__), "../../assets/discourse.png")
+      )
+    @indicator.tooltip_text = "Discourse Manager"
+
     @indicator.signal_connect("popup-menu") do |tray, button, time|
       menu = Gtk::Menu.new
 
@@ -600,6 +601,7 @@ class DiscourseSystemTray
       rescue Interrupt
         exit 0
       end
+      return
     end
 
     # Register this instance
@@ -627,8 +629,7 @@ class DiscourseSystemTray
         ps.each { |p| p[:thread].join }
       end
     else
-      pid_file = "/tmp/discourse_systray.pid"
-      File.write(pid_file, Process.pid) rescue nil
+      init_systray
       Gtk.main
     end
   end
