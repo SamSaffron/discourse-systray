@@ -223,7 +223,7 @@ class DiscourseSystemTray
     Thread.new do
       while line = stdout.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        puts line if OPTIONS[:console]  # Send to console
+        publish_to_pipe(line)
         puts "[OUT] #{line}" if OPTIONS[:debug]
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
@@ -239,7 +239,7 @@ class DiscourseSystemTray
     Thread.new do
       while line = stderr.gets
         buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-        STDERR.puts line if OPTIONS[:console]  # Send to console
+        publish_to_pipe("ERROR: #{line}")
         puts "[ERR] #{line}" if OPTIONS[:debug]
         buffer << line
         buffer.shift if buffer.size > BUFFER_SIZE
@@ -591,8 +591,15 @@ class DiscourseSystemTray
 
   def run
     if OPTIONS[:attach]
-      puts PIPE_PATH
-      exit 0
+      begin
+        File.open(PIPE_PATH, "r") do |pipe|
+          while line = pipe.gets
+            print line
+          end
+        end
+      rescue Interrupt
+        exit 0
+      end
     end
 
     # Register this instance
@@ -626,7 +633,15 @@ class DiscourseSystemTray
     end
   end
 
+  def publish_to_pipe(msg)
+    File.open(PIPE_PATH, "w") do |f|
+      f.puts(msg)
+    end
+  rescue Errno::EPIPE, IOError => e
+    puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
+  end
+
   def handle_command(cmd)
-    puts "Received command: #{cmd}"
+    puts "Received command: #{cmd}" if OPTIONS[:debug]
   end
 end
