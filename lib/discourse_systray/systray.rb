@@ -171,19 +171,6 @@ module ::DiscourseSystray
     end
 
     def cleanup
-      # Signal EOF and clean up pipe and pid file
-      begin
-        publish_to_pipe("EOF") if File.exist?(PIPE_PATH)
-        File.unlink(PIPE_PATH)
-      rescue StandardError
-        nil
-      end
-      begin
-        File.unlink(PID_FILE)
-      rescue StandardError
-        nil
-      end
-
       return if @processes.empty?
 
       # First disable updates to prevent race conditions
@@ -689,8 +676,20 @@ module ::DiscourseSystray
 
         system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
 
-        # Write PID file
+        # Create named pipe and write PID file
+        system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
         File.write(PID_FILE, Process.pid.to_s)
+
+        # Set up cleanup on exit
+        at_exit do
+          begin
+            publish_to_pipe("EOF") if File.exist?(PIPE_PATH)
+            File.unlink(PIPE_PATH) if File.exist?(PIPE_PATH)
+            File.unlink(PID_FILE) if File.exist?(PID_FILE)
+          rescue StandardError => e
+            puts "Error during cleanup: #{e}" if OPTIONS[:debug]
+          end
+        end
 
         # Initialize GTK
         Gtk.init
