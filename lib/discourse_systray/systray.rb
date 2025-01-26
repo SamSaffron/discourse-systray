@@ -17,6 +17,7 @@ class DiscourseSystemTray
         opts.on("--debug", "Enable debug mode") { OPTIONS[:debug] = true }
         opts.on("--path PATH", "Set Discourse path") { |p| OPTIONS[:path] = p }
         opts.on("--console", "Enable console mode") { OPTIONS[:console] = true }
+        opts.on("--attach", "Attach to existing systray") { OPTIONS[:attach] = true }
       end
       .parse!
     FileUtils.mkdir_p(CONFIG_DIR) unless Dir.exist?(CONFIG_DIR)
@@ -572,6 +573,11 @@ class DiscourseSystemTray
   end
 
   def run
+    if OPTIONS[:attach]
+      puts "Attaching to existing systray... (Not fully implemented yet)"
+      return
+    end
+
     if OPTIONS[:console]
       Dir.chdir(@discourse_path) do
         ps = []
