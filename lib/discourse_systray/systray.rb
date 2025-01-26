@@ -670,6 +670,7 @@ module ::DiscourseSystray
 
     def publish_to_pipe(msg)
       return unless File.exist?(PIPE_PATH)
+      puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
       begin
         File.open(PIPE_PATH, "w") { |f| f.puts(msg) }
       rescue Errno::EPIPE, IOError => e
