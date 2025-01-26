@@ -410,51 +410,57 @@ class DiscourseSystemTray
     return unless text_view.visible? && text_view.parent&.visible?
     return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
-    # Save current scroll position and check if we're at bottom
+    # Generate new content first
+    new_text = ""
+    new_tags = []
+    
+    buffer.each do |line|
+      start_pos = new_text.length
+      segments = line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
+      
+      segments.each do |codes, text, clear_line, plain|
+        if codes
+          segment_start = new_text.length
+          new_text << text
+          codes.split(";").each do |code|
+            case code
+            when "1"
+              new_tags << ["bold", segment_start, new_text.length]
+            when "31".."37"
+              new_tags << ["ansi_#{code}", segment_start, new_text.length]
+            end
+          end
+        elsif clear_line
+          new_text << clear_line
+        else
+          new_text << (plain || "")
+        end
+      end
+    end
+
+    # Only update if content has changed
+    return if new_text == text_view.buffer.text
+
+    # Save scroll position if needed
     adj = text_view&.parent&.vadjustment
     return unless adj
     was_at_bottom = (adj.value >= adj.upper - adj.page_size - 50)
     old_value = adj.value
 
-    text_view.buffer.text = ""
-    iter = text_view.buffer.get_iter_at(offset: 0)
-
-    buffer.each do |line|
-      # Parse ANSI sequences
-      segments = line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
-
-      segments.each do |codes, text, clear_line, plain|
-        if codes
-          codes
-            .split(";")
-            .each do |code|
-              case code
-              when "1"
-                text_view.buffer.apply_tag("bold", iter, iter)
-              when "31".."37"
-                text_view.buffer.apply_tag("ansi_#{code}", iter, iter)
-              end
-            end
-          text_view.buffer.insert(iter, text)
-        elsif clear_line
-          text_view.buffer.insert(iter, clear_line)
-        else
-          text_view.buffer.insert(iter, plain || "")
-        end
-      end
-    end
-
-    # Wait for GTK to update the view
-    while Gtk.events_pending?
-      Gtk.main_iteration
+    # Update content
+    text_view.buffer.text = new_text
+    
+    # Apply tags
+    new_tags.each do |tag_name, start_pos, end_pos|
+      start_iter = text_view.buffer.get_iter_at(offset: start_pos)
+      end_iter = text_view.buffer.get_iter_at(offset: end_pos)
+      text_view.buffer.apply_tag(tag_name, start_iter, end_iter)
     end
 
     # Restore scroll position
     if was_at_bottom
-      # If we were at bottom, stay at bottom
       adj.value = adj.upper - adj.page_size
     else
-      # Otherwise restore previous position
       adj.value = old_value
     end
   end
