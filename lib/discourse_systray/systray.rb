@@ -5,7 +5,8 @@ require "timeout"
 require "fileutils"
 require "json"
 
-class DiscourseSystemTray
+module DiscourseSystray
+  class Systray
   CONFIG_DIR = File.expand_path("~/.config/discourse-systray")
   CONFIG_FILE = File.join(CONFIG_DIR, "config.json")
   OPTIONS = { debug: false, path: nil }

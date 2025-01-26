@@ -3,11 +3,11 @@
 
 require "discourse_systray/systray"
 
-class DiscourseSystemTray
-  def run_discourse_systray
-    systray = DiscourseSystemTray.new
+module DiscourseSystray
+  def self.run
+    systray = Systray.new
 
-    if DiscourseSystemTray::OPTIONS[:attach]
+    if Systray::OPTIONS[:attach]
       begin
         File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
           while line = pipe.gets
@@ -21,28 +21,28 @@ class DiscourseSystemTray
     end
 
     # Register this instance
-    File.write(DiscourseSystemTray::PID_FILE, Process.pid)
+    File.write(Systray::PID_FILE, Process.pid)
 
     # Create command pipe
     begin
-      File.unlink(DiscourseSystemTray::PIPE_PATH)
+      File.unlink(Systray::PIPE_PATH)
     rescue StandardError
       nil
     end
     begin
-      File.mkfifo(DiscourseSystemTray::PIPE_PATH)
+      File.mkfifo(Systray::PIPE_PATH)
     rescue StandardError
       nil
     end
 
     # Start command listener
     Thread.new do
-      File.open(DiscourseSystemTray::PIPE_PATH, "r") do |pipe|
+      File.open(Systray::PIPE_PATH, "r") do |pipe|
         pipe.each_line { |line| systray.handle_command(line.strip) }
       end
     end
 
-    if DiscourseSystemTray::OPTIONS[:console]
+    if Systray::OPTIONS[:console]
       Dir.chdir(systray.discourse_path) do
         ps = []
         ps << systray.start_process("bin/ember-cli", console: true)
@@ -55,6 +55,7 @@ class DiscourseSystemTray
       Gtk.main
     end
   end
+  end
 end
 
-run_discourse_systray if $0 == __FILE__
+DiscourseSystray.run if $0 == __FILE__
