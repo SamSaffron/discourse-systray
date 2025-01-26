@@ -574,8 +574,20 @@ class DiscourseSystemTray
 
   def run
     if OPTIONS[:attach]
-      puts "Attaching to existing systray... (Not fully implemented yet)"
-      return
+      pid_file = "/tmp/discourse_systray.pid"
+      if File.exist?(pid_file)
+        existing_pid = File.read(pid_file).strip.to_i
+        if system("ps -p #{existing_pid} > /dev/null 2>&1")
+          puts "Attaching to existing systray with PID=#{existing_pid}"
+          # On i3, we can try focusing the process with i3-msg
+          system("i3-msg '[pid=#{existing_pid}] focus'") if system("which i3-msg >/dev/null 2>&1")
+          exit 0
+        else
+          puts "No running systray found at PID=#{existing_pid}, starting new instance..."
+        end
+      else
+        puts "No systray PID file found, starting new instance..."
+      end
     end
 
     if OPTIONS[:console]
@@ -587,6 +599,8 @@ class DiscourseSystemTray
         ps.each { |p| p[:thread].join }
       end
     else
+      pid_file = "/tmp/discourse_systray.pid"
+      File.write(pid_file, Process.pid) rescue nil
       Gtk.main
     end
   end
