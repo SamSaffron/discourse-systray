@@ -163,6 +163,10 @@ class DiscourseSystemTray
   end
 
   def cleanup
+    # Clean up pipe and pid file
+    File.unlink(PIPE_PATH) rescue nil
+    File.unlink(PID_FILE) rescue nil
+
     return if @processes.empty?
 
     # First disable updates to prevent race conditions
@@ -572,15 +576,42 @@ class DiscourseSystemTray
     }
   end
 
+  PIPE_PATH = "/tmp/discourse_systray_cmd"
+  PID_FILE = "/tmp/discourse_systray.pid"
+
+  def self.running?
+    return false unless File.exist?(PID_FILE)
+    pid = File.read(PID_FILE).to_i
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH, Errno::ENOENT
+    File.unlink(PID_FILE) rescue nil
+    false
+  end
+
   def run
     if OPTIONS[:attach]
-      pipe_path = "/tmp/discourse_systray_cmd"
-      File.mkfifo(pipe_path) unless File.exist?(pipe_path)
-      Thread.new do
-        File.open(pipe_path, "r") do |pipe|
-          pipe.each_line do |line|
-            handle_command(line.strip)
-          end
+      if self.class.running?
+        puts "Discourse systray is already running"
+        exit 1
+      else
+        puts "No running instance found"
+        exit 1
+      end
+    end
+
+    # Register this instance
+    File.write(PID_FILE, Process.pid)
+    
+    # Create command pipe
+    File.unlink(PIPE_PATH) rescue nil
+    File.mkfifo(PIPE_PATH) rescue nil
+    
+    # Start command listener
+    Thread.new do
+      File.open(PIPE_PATH, "r") do |pipe|
+        pipe.each_line do |line|
+          handle_command(line.strip)
         end
       end
     end
