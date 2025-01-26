@@ -386,15 +386,15 @@ module ::DiscourseSystray
 
       # Set up periodic refresh with validity check
       timeout_id =
-        GLib::Timeout.add(1000) do
-          if text_view&.parent.nil? || !text_view&.parent&.visible?
+        GLib::Timeout.add(500) do
+          if text_view&.parent.nil? || text_view.destroyed?
             @view_timeouts.delete(text_view.object_id)
             false # Stop the timeout if view is destroyed
           else
             begin
               update_log_view(text_view, buffer)
-            rescue StandardError
-              nil
+            rescue StandardError => e
+              puts "Error updating log view: #{e}" if OPTIONS[:debug]
             end
             true # Keep the timeout active
           end
@@ -436,8 +436,7 @@ module ::DiscourseSystray
     end
 
     def update_log_view(text_view, buffer)
-      return if buffer.empty? || text_view.nil? || text_view.destroyed?
-      return unless text_view.visible? && text_view.parent&.visible?
+      return if text_view.nil? || text_view.destroyed?
       return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
       # Determine which offset counter to use
@@ -451,11 +450,8 @@ module ::DiscourseSystray
         )
       current_offset = instance_variable_get(offset_var)
 
-      # Don't call if we've already processed all lines or if text_view is invalid
+      # Don't call if we've already processed all lines
       return if buffer.size <= current_offset
-      return if text_view.nil? || text_view.destroyed?
-      return unless text_view.visible? && text_view.parent&.visible?
-      return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
       adj = text_view&.parent&.vadjustment
       was_at_bottom = (adj && adj.value >= adj.upper - adj.page_size - 50)
