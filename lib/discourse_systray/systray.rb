@@ -590,48 +590,10 @@ class DiscourseSystemTray
     false
   end
 
+  attr_reader :discourse_path
+
   def run
-    if OPTIONS[:attach]
-      begin
-        File.open(PIPE_PATH, "r") do |pipe|
-          while line = pipe.gets
-            print line
-          end
-        end
-      rescue Interrupt
-        exit 0
-      end
-      return
-    end
-
-    # Register this instance
-    File.write(PID_FILE, Process.pid)
-    
-    # Create command pipe
-    File.unlink(PIPE_PATH) rescue nil
-    File.mkfifo(PIPE_PATH) rescue nil
-    
-    # Start command listener
-    Thread.new do
-      File.open(PIPE_PATH, "r") do |pipe|
-        pipe.each_line do |line|
-          handle_command(line.strip)
-        end
-      end
-    end
-
-    if OPTIONS[:console]
-      Dir.chdir(@discourse_path) do
-        ps = []
-        ps << start_process("bin/ember-cli", console: true)
-        ps << start_process("bin/unicorn", console: true)
-        # Wait for both processes to finish
-        ps.each { |p| p[:thread].join }
-      end
-    else
-      init_systray
-      Gtk.main
-    end
+    # Left empty intentionally - execution logic moved to binary
   end
 
   def publish_to_pipe(msg)
