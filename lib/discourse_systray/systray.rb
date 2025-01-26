@@ -635,11 +635,14 @@ module ::DiscourseSystray
     def run
       if OPTIONS[:attach]
         # In attach mode, just monitor the pipe
-        loop do
-          if File.exist?(PIPE_PATH)
-            File.readlines(PIPE_PATH).each { |line| puts line }
+        # Create pipe if it doesn't exist
+        system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
+        
+        # Open pipe in read-only mode and read continuously
+        File.open(PIPE_PATH, "r") do |pipe|
+          while line = pipe.gets
+            puts line
           end
-          sleep 0.1
         end
       else
         return if self.class.running?
@@ -659,9 +662,17 @@ module ::DiscourseSystray
     end
 
     def publish_to_pipe(msg)
-      File.open(PIPE_PATH, "w") { |f| f.puts(msg) }
-    rescue Errno::EPIPE, IOError => e
-      puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
+      # Create pipe if it doesn't exist
+      system("mkfifo #{PIPE_PATH}") unless File.exist?(PIPE_PATH)
+      
+      # Open pipe in non-blocking mode to prevent hanging
+      begin
+        Timeout.timeout(0.1) do
+          File.open(PIPE_PATH, "w") { |f| f.puts(msg) }
+        end
+      rescue Timeout::Error, Errno::EPIPE, IOError => e
+        puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
+      end
     end
 
     def handle_command(cmd)
