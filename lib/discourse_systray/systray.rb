@@ -103,6 +103,10 @@ module ::DiscourseSystray
       @unicorn_output << "This is a test line for Unicorn\n"
       @unicorn_output << "Another test line for Unicorn\n"
       
+      # Add a visual separator
+      @ember_output << "=" * 50 + "\n"
+      @unicorn_output << "=" * 50 + "\n"
+      
       puts "DEBUG: Added initial data to buffers" if OPTIONS[:debug]
       puts "DEBUG: ember_output size: #{@ember_output.size}" if OPTIONS[:debug]
       puts "DEBUG: unicorn_output size: #{@unicorn_output.size}" if OPTIONS[:debug]
@@ -316,12 +320,17 @@ module ::DiscourseSystray
             # Add to buffer with size management
             buffer << line
             
+            # Print buffer size for debugging
+            if OPTIONS[:debug] && buffer.size % 10 == 0
+              puts "DEBUG: Buffer size now: #{buffer.size}"
+            end
+            
             # Trim if needed
             if buffer.size > BUFFER_SIZE
               buffer.shift(buffer.size - BUFFER_SIZE)
             end
             
-            # Update GUI
+            # Force GUI update on main thread
             GLib::Idle.add do
               update_all_views
               false
@@ -343,12 +352,17 @@ module ::DiscourseSystray
             # Add to buffer with size management
             buffer << "ERROR: #{line}"
             
+            # Print buffer size for debugging
+            if OPTIONS[:debug] && buffer.size % 10 == 0
+              puts "DEBUG: Buffer size now: #{buffer.size}"
+            end
+            
             # Trim if needed
             if buffer.size > BUFFER_SIZE
               buffer.shift(buffer.size - BUFFER_SIZE)
             end
             
-            # Update GUI
+            # Force GUI update on main thread
             GLib::Idle.add do
               update_all_views
               false
@@ -481,13 +495,18 @@ module ::DiscourseSystray
       return unless @ember_view && @unicorn_view
       
       begin
-        # Update ember view if visible
-        if @ember_view && !@ember_view.destroyed? && @ember_view.child && !@ember_view.child.destroyed?
+        # Get current notebook page to only update the visible view
+        current_page = @notebook ? @notebook.page : -1
+        
+        # Update ember view if it's the current tab or if forced update
+        if (@notebook && current_page == 0) || 
+           (@ember_view && !@ember_view.destroyed? && @ember_view.child && !@ember_view.child.destroyed?)
           update_log_view(@ember_view.child, @ember_output)
         end
         
-        # Update unicorn view if visible
-        if @unicorn_view && !@unicorn_view.destroyed? && @unicorn_view.child && !@unicorn_view.child.destroyed?
+        # Update unicorn view if it's the current tab or if forced update
+        if (@notebook && current_page == 1) || 
+           (@unicorn_view && !@unicorn_view.destroyed? && @unicorn_view.child && !@unicorn_view.child.destroyed?)
           update_log_view(@unicorn_view.child, @unicorn_output)
         end
         
@@ -497,6 +516,7 @@ module ::DiscourseSystray
         end
       rescue => e
         puts "DEBUG: Error in update_all_views: #{e.message}" if OPTIONS[:debug]
+        puts e.backtrace.join("\n") if OPTIONS[:debug]
       end
     end
 
@@ -519,15 +539,21 @@ module ::DiscourseSystray
       text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
       text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
       
+      # Set font size explicitly
+      font_desc = Pango::FontDescription.new
+      font_desc.family = "Monospace"
+      font_desc.size = 12 * Pango::SCALE
+      text_view.override_font(font_desc)
+      
       # Set initial text
       text_view.buffer.text = "Loading log data...\n"
       
       # Add the text view to the scrolled window
       scroll.add(text_view)
       
-      # Set up a timer to update the view periodically
+      # Set up a timer to update the view more frequently
       @view_timeouts ||= {}
-      timeout_id = GLib::Timeout.add(500) do
+      timeout_id = GLib::Timeout.add(250) do
         if text_view.destroyed? || scroll.destroyed?
           @view_timeouts.delete(text_view.object_id)
           false # Stop the timer
@@ -567,8 +593,16 @@ module ::DiscourseSystray
       return if text_view.nil? || text_view.destroyed?
       return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
+      # Debug buffer content
+      if OPTIONS[:debug]
+        puts "DEBUG: Buffer size: #{buffer.size}"
+        if buffer.size > 0
+          puts "DEBUG: First line: #{buffer.first.inspect}"
+          puts "DEBUG: Last line: #{buffer.last.inspect}"
+        end
+      end
+
       # Completely replace the buffer content with all lines
-      # This is a simpler approach that avoids tracking offsets
       begin
         # Join all buffer lines into a single string
         all_content = buffer.join("")
@@ -576,15 +610,23 @@ module ::DiscourseSystray
         # Strip ANSI codes
         clean_content = all_content.gsub(/\e\[[0-9;]*[mK]/, '')
         
-        # Set the entire buffer text at once
-        text_view.buffer.text = clean_content
-        
-        puts "DEBUG: Set entire buffer text (#{clean_content.length} chars)" if OPTIONS[:debug]
-        
-        # Scroll to bottom
-        adj = text_view&.parent&.vadjustment
-        if adj
-          adj.value = adj.upper - adj.page_size
+        # Only update if content has changed
+        if text_view.buffer.text != clean_content
+          # Set the entire buffer text at once
+          text_view.buffer.text = clean_content
+          
+          puts "DEBUG: Updated buffer text (#{clean_content.length} chars)" if OPTIONS[:debug]
+          
+          # Scroll to bottom
+          adj = text_view&.parent&.vadjustment
+          if adj
+            adj.value = adj.upper - adj.page_size
+          end
+          
+          # Process any pending GTK events to ensure UI updates
+          while Gtk.events_pending?
+            Gtk.main_iteration_do(false)
+          end
         end
       rescue => e
         puts "DEBUG: Error updating text view: #{e.message}" if OPTIONS[:debug]
