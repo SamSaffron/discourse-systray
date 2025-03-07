@@ -74,7 +74,8 @@ module ::DiscourseSystray
     rescue JSON::ParserError
       {}
     end
-    BUFFER_SIZE = 2000
+    BUFFER_SIZE = 1000
+    BUFFER_TRIM_INTERVAL = 30 # seconds
 
     def initialize
       @discourse_path = self.class.load_or_prompt_config unless OPTIONS[:attach]
@@ -87,6 +88,34 @@ module ::DiscourseSystray
       @ember_line_count = 0
       @unicorn_line_count = 0
       @status_window = nil
+      @buffer_trim_timer = nil
+      
+      # Set up periodic buffer trimming
+      setup_buffer_trim_timer unless OPTIONS[:attach]
+    end
+    
+    def setup_buffer_trim_timer
+      @buffer_trim_timer = GLib::Timeout.add_seconds(BUFFER_TRIM_INTERVAL) do
+        trim_buffers
+        true # Keep the timer running
+      end
+    end
+    
+    def trim_buffers
+      # Trim buffers if they exceed the buffer size
+      if @ember_output.size > BUFFER_SIZE
+        excess = @ember_output.size - BUFFER_SIZE
+        @ember_output.shift(excess)
+        @ember_line_count = [@ember_line_count - excess, 0].max
+      end
+      
+      if @unicorn_output.size > BUFFER_SIZE
+        excess = @unicorn_output.size - BUFFER_SIZE
+        @unicorn_output.shift(excess)
+        @unicorn_line_count = [@unicorn_line_count - excess, 0].max
+      end
+      
+      true
     end
 
     def init_systray
@@ -182,6 +211,16 @@ module ::DiscourseSystray
         end
       end
       @view_timeouts&.clear
+      
+      # Remove buffer trim timer if it exists
+      if @buffer_trim_timer
+        begin
+          GLib::Source.remove(@buffer_trim_timer)
+          @buffer_trim_timer = nil
+        rescue StandardError => e
+          puts "Error removing buffer trim timer: #{e}" if OPTIONS[:debug]
+        end
+      end
 
       # Then stop processes
       @processes.each do |name, process|
@@ -230,8 +269,21 @@ module ::DiscourseSystray
             command.include?("ember-cli") ? @ember_output : @unicorn_output
           publish_to_pipe(line)
           puts "[OUT] #{line}" if OPTIONS[:debug]
+          
+          # Add to buffer with size management
           buffer << line
-          buffer.shift if buffer.size > BUFFER_SIZE
+          # Only trim if significantly over limit to reduce frequent shifts
+          if buffer.size > BUFFER_SIZE + 100
+            excess = buffer.size - BUFFER_SIZE
+            buffer.shift(excess)
+            # Adjust line count if we're tracking this buffer
+            if buffer == @ember_output
+              @ember_line_count = [@ember_line_count - excess, 0].max
+            elsif buffer == @unicorn_output
+              @unicorn_line_count = [@unicorn_line_count - excess, 0].max
+            end
+          end
+          
           # Force GUI update
           GLib::Idle.add do
             update_all_views
@@ -247,8 +299,21 @@ module ::DiscourseSystray
             command.include?("ember-cli") ? @ember_output : @unicorn_output
           publish_to_pipe("ERROR: #{line}")
           puts "[ERR] #{line}" if OPTIONS[:debug]
+          
+          # Add to buffer with size management
           buffer << line
-          buffer.shift if buffer.size > BUFFER_SIZE
+          # Only trim if significantly over limit to reduce frequent shifts
+          if buffer.size > BUFFER_SIZE + 100
+            excess = buffer.size - BUFFER_SIZE
+            buffer.shift(excess)
+            # Adjust line count if we're tracking this buffer
+            if buffer == @ember_output
+              @ember_line_count = [@ember_line_count - excess, 0].max
+            elsif buffer == @unicorn_output
+              @unicorn_line_count = [@unicorn_line_count - excess, 0].max
+            end
+          end
+          
           # Force GUI update
           GLib::Idle.add do
             update_all_views
