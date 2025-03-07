@@ -89,8 +89,6 @@ module ::DiscourseSystray
       @processes = {}
       @ember_running = false
       @unicorn_running = false
-      @ember_line_count = 0
-      @unicorn_line_count = 0
       @status_window = nil
       @buffer_trim_timer = nil
       
@@ -99,25 +97,18 @@ module ::DiscourseSystray
       @ember_output << "#{timestamp} - Initializing Ember output buffer...\n"
       @unicorn_output << "#{timestamp} - Initializing Unicorn output buffer...\n"
       
+      # Add some more test data to make sure we have content
+      @ember_output << "This is a test line for Ember\n"
+      @ember_output << "Another test line for Ember\n"
+      @unicorn_output << "This is a test line for Unicorn\n"
+      @unicorn_output << "Another test line for Unicorn\n"
+      
       puts "DEBUG: Added initial data to buffers" if OPTIONS[:debug]
       puts "DEBUG: ember_output size: #{@ember_output.size}" if OPTIONS[:debug]
       puts "DEBUG: unicorn_output size: #{@unicorn_output.size}" if OPTIONS[:debug]
       
       # Set up periodic buffer trimming
       setup_buffer_trim_timer unless OPTIONS[:attach]
-      
-      # Add a direct test of buffer content
-      if OPTIONS[:debug]
-        puts "DEBUG: ember_output content:"
-        @ember_output.each_with_index do |line, i|
-          puts "  [#{i}] #{line.inspect}"
-        end
-        
-        puts "DEBUG: unicorn_output content:"
-        @unicorn_output.each_with_index do |line, i|
-          puts "  [#{i}] #{line.inspect}"
-        end
-      end
       
       puts "DEBUG: Initialized DiscourseSystray with path: #{@discourse_path}" if OPTIONS[:debug]
     end
@@ -290,12 +281,10 @@ module ::DiscourseSystray
       monitor_thread =
         Thread.new do
           begin
-            puts "DEBUG: Monitor thread started for PID: #{wait_thr.pid}" if OPTIONS[:debug]
             wait_thr.value # Wait for process to finish
             is_ember = command.include?("ember-cli")
             @ember_running = false if is_ember
             @unicorn_running = false unless is_ember
-            puts "DEBUG: Process #{wait_thr.pid} finished, is_ember=#{is_ember}" if OPTIONS[:debug]
             GLib::Idle.add do
               update_tab_labels if @notebook
               false
@@ -305,124 +294,68 @@ module ::DiscourseSystray
           end
         end
 
-      # Add a test message to the buffer
+      # Add a start message to the buffer
       buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-      buffer_name = command.include?("ember-cli") ? "ember_output" : "unicorn_output"
-      
       timestamp = Time.now.strftime("%H:%M:%S")
-      start_message = "#{timestamp} - Starting #{command}...\n"
-      buffer << start_message
-      
-      puts "DEBUG: Added start message to #{buffer_name}: '#{start_message}'" if OPTIONS[:debug]
-      puts "DEBUG: Buffer size is now: #{buffer.size}" if OPTIONS[:debug]
+      buffer << "#{timestamp} - Starting #{command}...\n"
       
       # Force immediate GUI update
       GLib::Idle.add do
-        puts "DEBUG: Forcing immediate GUI update after start" if OPTIONS[:debug]
         update_all_views
         false
       end
 
-      # Monitor stdout - send to both console and UX buffer
+      # Monitor stdout
       Thread.new do
         begin
-          puts "DEBUG: Starting stdout monitor thread for #{buffer_name}" if OPTIONS[:debug]
-          line_count = 0
-          
           while line = stdout.gets
-            buffer =
-              command.include?("ember-cli") ? @ember_output : @unicorn_output
-            
+            buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
             publish_to_pipe(line)
             puts "[OUT] #{line}" if OPTIONS[:debug]
             
             # Add to buffer with size management
             buffer << line
-            line_count += 1
             
-            if line_count % 10 == 0
-              puts "DEBUG: Processed #{line_count} stdout lines for #{buffer_name}" if OPTIONS[:debug]
+            # Trim if needed
+            if buffer.size > BUFFER_SIZE
+              buffer.shift(buffer.size - BUFFER_SIZE)
             end
             
-            # Only trim if significantly over limit to reduce frequent shifts
-            if buffer.size > BUFFER_SIZE + 100
-              excess = buffer.size - BUFFER_SIZE
-              buffer.shift(excess)
-              puts "DEBUG: Trimmed #{excess} lines from #{buffer_name}" if OPTIONS[:debug]
-              
-              # Adjust line count if we're tracking this buffer
-              if buffer == @ember_output
-                @ember_line_count = [@ember_line_count - excess, 0].max
-                puts "DEBUG: Adjusted @ember_line_count to #{@ember_line_count}" if OPTIONS[:debug]
-              elsif buffer == @unicorn_output
-                @unicorn_line_count = [@unicorn_line_count - excess, 0].max
-                puts "DEBUG: Adjusted @unicorn_line_count to #{@unicorn_line_count}" if OPTIONS[:debug]
-              end
-            end
-            
-            # Force GUI update - use main thread
+            # Update GUI
             GLib::Idle.add do
               update_all_views
               false
             end
           end
-          
-          puts "DEBUG: stdout stream ended for #{buffer_name}" if OPTIONS[:debug]
         rescue => e
           puts "DEBUG: Error in stdout thread: #{e.message}" if OPTIONS[:debug]
-          puts e.backtrace.join("\n") if OPTIONS[:debug]
         end
       end
 
-      # Monitor stderr - send to both console and UX buffer
+      # Monitor stderr
       Thread.new do
         begin
-          puts "DEBUG: Starting stderr monitor thread for #{buffer_name}" if OPTIONS[:debug]
-          line_count = 0
-          
           while line = stderr.gets
-            buffer =
-              command.include?("ember-cli") ? @ember_output : @unicorn_output
-            
+            buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
             publish_to_pipe("ERROR: #{line}")
             puts "[ERR] #{line}" if OPTIONS[:debug]
             
             # Add to buffer with size management
-            error_line = "ERROR: #{line}"
-            buffer << error_line
-            line_count += 1
+            buffer << "ERROR: #{line}"
             
-            if line_count % 10 == 0
-              puts "DEBUG: Processed #{line_count} stderr lines for #{buffer_name}" if OPTIONS[:debug]
+            # Trim if needed
+            if buffer.size > BUFFER_SIZE
+              buffer.shift(buffer.size - BUFFER_SIZE)
             end
             
-            # Only trim if significantly over limit to reduce frequent shifts
-            if buffer.size > BUFFER_SIZE + 100
-              excess = buffer.size - BUFFER_SIZE
-              buffer.shift(excess)
-              puts "DEBUG: Trimmed #{excess} lines from #{buffer_name}" if OPTIONS[:debug]
-              
-              # Adjust line count if we're tracking this buffer
-              if buffer == @ember_output
-                @ember_line_count = [@ember_line_count - excess, 0].max
-                puts "DEBUG: Adjusted @ember_line_count to #{@ember_line_count}" if OPTIONS[:debug]
-              elsif buffer == @unicorn_output
-                @unicorn_line_count = [@unicorn_line_count - excess, 0].max
-                puts "DEBUG: Adjusted @unicorn_line_count to #{@unicorn_line_count}" if OPTIONS[:debug]
-              end
-            end
-            
-            # Force GUI update - use main thread
+            # Update GUI
             GLib::Idle.add do
               update_all_views
               false
             end
           end
-          
-          puts "DEBUG: stderr stream ended for #{buffer_name}" if OPTIONS[:debug]
         rescue => e
           puts "DEBUG: Error in stderr thread: #{e.message}" if OPTIONS[:debug]
-          puts e.backtrace.join("\n") if OPTIONS[:debug]
         end
       end
 
@@ -543,331 +476,127 @@ module ::DiscourseSystray
     def update_all_views
       puts "DEBUG: update_all_views called" if OPTIONS[:debug]
       
-      unless @status_window
-        puts "DEBUG: @status_window is nil" if OPTIONS[:debug]
-        return
-      end
-      
-      if @status_window.destroyed?
-        puts "DEBUG: @status_window is destroyed" if OPTIONS[:debug]
-        return
-      end
-      
-      unless @ember_view
-        puts "DEBUG: @ember_view is nil" if OPTIONS[:debug]
-        return
-      end
-      
-      unless @unicorn_view
-        puts "DEBUG: @unicorn_view is nil" if OPTIONS[:debug]
-        return
-      end
+      # Basic validity checks
+      return unless @status_window && !@status_window.destroyed?
+      return unless @ember_view && @unicorn_view
       
       begin
-        # More defensive checks
-        if @ember_view && !@ember_view.destroyed?
-          if @ember_view.child && !@ember_view.child.destroyed?
-            puts "DEBUG: Updating ember view" if OPTIONS[:debug]
-            update_log_view(@ember_view.child, @ember_output)
-          else
-            puts "DEBUG: @ember_view.child is nil or destroyed" if OPTIONS[:debug]
-          end
-        else
-          puts "DEBUG: @ember_view is destroyed" if OPTIONS[:debug]
+        # Update ember view if visible
+        if @ember_view && !@ember_view.destroyed? && @ember_view.child && !@ember_view.child.destroyed?
+          update_log_view(@ember_view.child, @ember_output)
         end
         
-        if @unicorn_view && !@unicorn_view.destroyed?
-          if @unicorn_view.child && !@unicorn_view.child.destroyed?
-            puts "DEBUG: Updating unicorn view" if OPTIONS[:debug]
-            update_log_view(@unicorn_view.child, @unicorn_output)
-          else
-            puts "DEBUG: @unicorn_view.child is nil or destroyed" if OPTIONS[:debug]
-          end
-        else
-          puts "DEBUG: @unicorn_view is destroyed" if OPTIONS[:debug]
+        # Update unicorn view if visible
+        if @unicorn_view && !@unicorn_view.destroyed? && @unicorn_view.child && !@unicorn_view.child.destroyed?
+          update_log_view(@unicorn_view.child, @unicorn_output)
         end
         
-        # Force UI update
-        puts "DEBUG: Processing pending GTK events" if OPTIONS[:debug]
-        event_count = 0
-        while Gtk.events_pending? && event_count < 100  # Limit to prevent infinite loop
+        # Process any pending GTK events
+        while Gtk.events_pending?
           Gtk.main_iteration_do(false)
-          event_count += 1
         end
-        puts "DEBUG: Processed #{event_count} GTK events" if OPTIONS[:debug]
-      rescue StandardError => e
-        puts "DEBUG: Error updating views: #{e}" if OPTIONS[:debug]
-        puts e.backtrace.join("\n") if OPTIONS[:debug]
+      rescue => e
+        puts "DEBUG: Error in update_all_views: #{e.message}" if OPTIONS[:debug]
       end
     end
 
     def create_log_view(buffer)
       puts "DEBUG: create_log_view called for #{buffer == @ember_output ? 'ember' : 'unicorn'}" if OPTIONS[:debug]
       
+      # Create a scrolled window to contain the text view
       scroll = Gtk::ScrolledWindow.new
+      
+      # Create a simple text view with minimal configuration
       text_view = Gtk::TextView.new
       text_view.editable = false
+      text_view.cursor_visible = false
       text_view.wrap_mode = :word
+      
+      # Use a fixed-width font
       text_view.monospace = true
-
-      puts "DEBUG: TextView created with object_id=#{text_view.object_id}" if OPTIONS[:debug]
-
-      # Set white text on black background - more explicit settings
-      begin
-        text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
-        text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
-        puts "DEBUG: Set text/background colors" if OPTIONS[:debug]
-      rescue => e
-        puts "DEBUG: Error setting colors: #{e.message}" if OPTIONS[:debug]
-      end
       
-      # Set font size explicitly
-      begin
-        font_desc = Pango::FontDescription.new
-        font_desc.family = "Monospace"
-        font_desc.size = 10 * Pango::SCALE
-        text_view.override_font(font_desc)
-        puts "DEBUG: Set font" if OPTIONS[:debug]
-      rescue => e
-        puts "DEBUG: Error setting font: #{e.message}" if OPTIONS[:debug]
-      end
-
-      # Add initial welcome text with timestamp
-      timestamp = Time.now.strftime("%H:%M:%S")
-      initial_text = "#{timestamp} - Initializing log view...\n"
+      # Set colors - white text on black background
+      text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
+      text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
       
-      begin
-        text_view.buffer.text = initial_text
-        puts "DEBUG: Set initial text: '#{initial_text}'" if OPTIONS[:debug]
-      rescue => e
-        puts "DEBUG: Error setting initial text: #{e.message}" if OPTIONS[:debug]
-      end
+      # Set initial text
+      text_view.buffer.text = "Loading log data...\n"
       
-      # Force immediate update
-      begin
-        update_log_view(text_view, buffer)
-        puts "DEBUG: Called initial update_log_view" if OPTIONS[:debug]
-      rescue => e
-        puts "DEBUG: Error in initial update_log_view: #{e.message}" if OPTIONS[:debug]
-        puts e.backtrace.join("\n") if OPTIONS[:debug]
-      end
-      
-      # Add debug info if in debug mode
-      if OPTIONS[:debug]
-        begin
-          buffer_info = "Buffer object_id=#{buffer.object_id}, size=#{buffer.size}\n"
-          text_view.buffer.text += "Debug mode enabled\n"
-          text_view.buffer.text += buffer_info
-          puts "DEBUG: Added debug info to buffer: #{buffer_info}" if OPTIONS[:debug]
-        rescue => e
-          puts "DEBUG: Error adding debug info: #{e.message}" if OPTIONS[:debug]
-        end
-      end
-
-      # Store timeouts in instance variable for proper cleanup
-      @view_timeouts ||= {}
-
-      # Set up periodic refresh with validity check - more frequent updates
-      timeout_id =
-        GLib::Timeout.add(250) do
-          if text_view&.parent.nil? || text_view.destroyed?
-            puts "DEBUG: TextView destroyed or parent nil, removing timeout" if OPTIONS[:debug]
-            @view_timeouts.delete(text_view.object_id)
-            false # Stop the timeout if view is destroyed
-          else
-            begin
-              update_log_view(text_view, buffer)
-            rescue StandardError => e
-              puts "DEBUG: Error in timeout update_log_view: #{e.message}" if OPTIONS[:debug]
-              puts e.backtrace.join("\n") if OPTIONS[:debug]
-              
-              # Add error directly to the buffer without tags
-              if OPTIONS[:debug] && !text_view.destroyed? && !text_view.buffer.destroyed?
-                begin
-                  error_msg = "\nERROR updating view: #{e.message}\n"
-                  text_view.buffer.insert(text_view.buffer.end_iter, error_msg)
-                  puts "DEBUG: Added error message to buffer: #{error_msg}" if OPTIONS[:debug]
-                rescue => e2
-                  puts "DEBUG: Error adding error message to buffer: #{e2.message}" if OPTIONS[:debug]
-                end
-              end
-            end
-            true # Keep the timeout active
-          end
-        end
-
-      @view_timeouts[text_view.object_id] = timeout_id
-      puts "DEBUG: Set up timeout with id=#{timeout_id}" if OPTIONS[:debug]
-
-      # Clean up timeout when view is destroyed
-      text_view.signal_connect("destroy") do
-        puts "DEBUG: TextView destroy signal triggered" if OPTIONS[:debug]
-        if timeout_id = @view_timeouts.delete(text_view.object_id)
-          begin
-            GLib::Source.remove(timeout_id)
-            puts "DEBUG: Removed timeout #{timeout_id}" if OPTIONS[:debug]
-          rescue StandardError => e
-            puts "DEBUG: Error removing timeout: #{e.message}" if OPTIONS[:debug]
-            nil
-          end
-        end
-      end
-
+      # Add the text view to the scrolled window
       scroll.add(text_view)
-      puts "DEBUG: Added TextView to ScrolledWindow" if OPTIONS[:debug]
+      
+      # Set up a timer to update the view periodically
+      @view_timeouts ||= {}
+      timeout_id = GLib::Timeout.add(500) do
+        if text_view.destroyed? || scroll.destroyed?
+          @view_timeouts.delete(text_view.object_id)
+          false # Stop the timer
+        else
+          begin
+            update_log_view(text_view, buffer)
+          rescue => e
+            puts "DEBUG: Error updating log view: #{e.message}" if OPTIONS[:debug]
+          end
+          true # Continue the timer
+        end
+      end
+      
+      # Store the timeout ID for cleanup
+      @view_timeouts[text_view.object_id] = timeout_id
+      
+      # Clean up when the view is destroyed
+      text_view.signal_connect("destroy") do
+        if id = @view_timeouts.delete(text_view.object_id)
+          GLib::Source.remove(id) rescue nil
+        end
+      end
+      
+      # Do an initial update
+      update_log_view(text_view, buffer)
+      
+      # Return the scrolled window
       scroll
     end
 
-    def create_ansi_tags(buffer)
-      # Basic ANSI colors
-      {
-        "31" => "#ff6b6b", # Brighter red
-        "32" => "#87ff87", # Brighter green
-        "33" => "#ffff87", # Brighter yellow
-        "34" => "#87d7ff", # Brighter blue
-        "35" => "#ff87ff", # Brighter magenta
-        "36" => "#87ffff", # Brighter cyan
-        "37" => "#ffffff"  # White
-      }.each do |code, color|
-        buffer.create_tag("ansi_#{code}", foreground: color)
-      end
-
-      # Add more tags for bold, etc
-      buffer.create_tag("bold", weight: :bold)
-      
-      # Add a default text tag for better visibility
-      buffer.create_tag("default_text", foreground: "#ffffff")
-    end
+    # We're not using ANSI tags anymore since we're stripping ANSI codes
 
     def update_log_view(text_view, buffer)
       puts "DEBUG: update_log_view called" if OPTIONS[:debug]
       
-      if text_view.nil?
-        puts "DEBUG: text_view is nil" if OPTIONS[:debug]
-        return
-      end
-      
-      if text_view.destroyed?
-        puts "DEBUG: text_view is destroyed" if OPTIONS[:debug]
-        return
-      end
-      
-      if text_view.buffer.nil?
-        puts "DEBUG: text_view.buffer is nil" if OPTIONS[:debug]
-        return
-      end
-      
-      if text_view.buffer.destroyed?
-        puts "DEBUG: text_view.buffer is destroyed" if OPTIONS[:debug]
-        return
-      end
+      # Basic validity checks
+      return if text_view.nil? || text_view.destroyed?
+      return if text_view.buffer.nil? || text_view.buffer.destroyed?
 
-      # Determine which offset counter to use
-      offset_var =
-        (
-          if buffer.equal?(@ember_output)
-            buffer_name = "ember_output"
-            :@ember_line_count
-          else
-            buffer_name = "unicorn_output"
-            :@unicorn_line_count
-          end
-        )
-      current_offset = instance_variable_get(offset_var)
-      
-      puts "DEBUG: update_log_view for #{buffer_name}, buffer.size=#{buffer.size}, current_offset=#{current_offset}" if OPTIONS[:debug]
-
-      # Don't call if we've already processed all lines
-      if buffer.size <= current_offset
-        puts "DEBUG: No new lines to process (buffer.size <= current_offset)" if OPTIONS[:debug]
-        return
-      end
-
-      # Always add debug info to the buffer
-      if OPTIONS[:debug]
-        debug_info = "DEBUG INFO: Buffer=#{buffer_name}, size=#{buffer.size}, offset=#{current_offset}\n"
-        puts debug_info
+      # Completely replace the buffer content with all lines
+      # This is a simpler approach that avoids tracking offsets
+      begin
+        # Join all buffer lines into a single string
+        all_content = buffer.join("")
         
-        # Force text into the buffer
-        if text_view.buffer.text.empty?
-          text_view.buffer.text = debug_info
-          puts "DEBUG: Added initial debug text to empty buffer" if OPTIONS[:debug]
-        end
-      end
-
-      # Process only the new lines
-      new_lines = buffer[current_offset..-1]
-      
-      # If there are no new lines, just return
-      if new_lines.nil?
-        puts "DEBUG: new_lines is nil" if OPTIONS[:debug]
-        if text_view.buffer.text.empty?
-          text_view.buffer.text = "No log data available yet...\n"
-          puts "DEBUG: Added 'No log data' message to empty buffer" if OPTIONS[:debug]
-        end
-        return
-      end
-      
-      if new_lines.empty?
-        puts "DEBUG: new_lines is empty" if OPTIONS[:debug]
-        if text_view.buffer.text.empty?
-          text_view.buffer.text = "No new log data available...\n"
-          puts "DEBUG: Added 'No new log data' message to empty buffer" if OPTIONS[:debug]
-        end
-        return
-      end
-      
-      puts "DEBUG: Processing #{new_lines.size} new lines" if OPTIONS[:debug]
-      
-      # Get scroll position
-      adj = text_view&.parent&.vadjustment
-      was_at_bottom = (adj && adj.value >= adj.upper - adj.page_size - 50)
-      old_value = adj ? adj.value : 0
-
-      # Simple approach: just append the text directly
-      new_lines.each_with_index do |line, index|
-        unless line
-          puts "DEBUG: Line #{index} is nil" if OPTIONS[:debug]
-          next
-        end
+        # Strip ANSI codes
+        clean_content = all_content.gsub(/\e\[[0-9;]*[mK]/, '')
         
-        # Strip ANSI codes for simplicity
-        clean_line = line.gsub(/\e\[[0-9;]*[mK]/, '')
+        # Set the entire buffer text at once
+        text_view.buffer.text = clean_content
         
-        # Debug the line
-        if OPTIONS[:debug] && index < 5  # Only show first few lines to avoid flooding
-          puts "DEBUG: Adding line #{index}: #{clean_line.inspect}"
-        end
+        puts "DEBUG: Set entire buffer text (#{clean_content.length} chars)" if OPTIONS[:debug]
         
-        # Insert at end of buffer
-        begin
-          text_view.buffer.insert(text_view.buffer.end_iter, clean_line)
-          puts "DEBUG: Successfully inserted line #{index}" if OPTIONS[:debug] && index < 5
-        rescue => e
-          puts "DEBUG: Error inserting line #{index}: #{e.message}" if OPTIONS[:debug]
-        end
-      end
-
-      # Update our offset counter
-      instance_variable_set(offset_var, buffer.size)
-      puts "DEBUG: Updated #{offset_var} to #{buffer.size}" if OPTIONS[:debug]
-
-      # Restore scroll position
-      if adj
-        if was_at_bottom
+        # Scroll to bottom
+        adj = text_view&.parent&.vadjustment
+        if adj
           adj.value = adj.upper - adj.page_size
-          puts "DEBUG: Scrolled to bottom" if OPTIONS[:debug]
-        else
-          adj.value = old_value
-          puts "DEBUG: Restored scroll position to #{old_value}" if OPTIONS[:debug]
         end
-      else
-        puts "DEBUG: No adjustment available" if OPTIONS[:debug]
+      rescue => e
+        puts "DEBUG: Error updating text view: #{e.message}" if OPTIONS[:debug]
+        puts e.backtrace.join("\n") if OPTIONS[:debug]
+        
+        # Try a fallback approach
+        begin
+          text_view.buffer.text = "Error displaying log. See console for details.\n#{e.message}"
+        rescue => e2
+          puts "DEBUG: Even fallback approach failed: #{e2.message}" if OPTIONS[:debug]
+        end
       end
-      
-      # Check if text was actually added
-      puts "DEBUG: Final buffer text length: #{text_view.buffer.text.length}" if OPTIONS[:debug]
-      puts "DEBUG: First 100 chars: #{text_view.buffer.text[0..100].inspect}" if OPTIONS[:debug]
     end
 
     def create_status_label(text, running)
