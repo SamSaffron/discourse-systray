@@ -422,6 +422,7 @@ module ::DiscourseSystray
       text_view = Gtk::TextView.new
       text_view.editable = false
       text_view.wrap_mode = :word
+      text_view.monospace = true  # Use monospace font for better log readability
 
       # Set white text on black background
       text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
@@ -431,7 +432,17 @@ module ::DiscourseSystray
       _tag_table = text_view.buffer.tag_table
       create_ansi_tags(text_view.buffer)
 
-      # Initial text
+      # Add initial welcome text
+      text_view.buffer.text = "Waiting for log data...\n"
+      
+      # Apply default text tag to initial text
+      text_view.buffer.apply_tag(
+        "default_text", 
+        text_view.buffer.start_iter,
+        text_view.buffer.end_iter
+      )
+
+      # Initial update
       update_log_view(text_view, buffer)
 
       # Store timeouts in instance variable for proper cleanup
@@ -448,6 +459,16 @@ module ::DiscourseSystray
               update_log_view(text_view, buffer)
             rescue StandardError => e
               puts "Error updating log view: #{e}" if OPTIONS[:debug]
+              # Add error to the view itself for better debugging
+              if OPTIONS[:debug] && !text_view.destroyed? && !text_view.buffer.destroyed?
+                err_start = text_view.buffer.end_iter
+                text_view.buffer.insert(err_start, "\nERROR updating view: #{e}\n")
+                text_view.buffer.apply_tag(
+                  "ansi_31", 
+                  err_start,
+                  text_view.buffer.end_iter
+                )
+              end
             end
             true # Keep the timeout active
           end
@@ -479,13 +500,16 @@ module ::DiscourseSystray
         "34" => "#87d7ff", # Brighter blue
         "35" => "#ff87ff", # Brighter magenta
         "36" => "#87ffff", # Brighter cyan
-        "37" => "#ffffff" # White
+        "37" => "#ffffff"  # White
       }.each do |code, color|
         buffer.create_tag("ansi_#{code}", foreground: color)
       end
 
       # Add more tags for bold, etc
       buffer.create_tag("bold", weight: :bold)
+      
+      # Add a default text tag for better visibility
+      buffer.create_tag("default_text", foreground: "#ffffff")
     end
 
     def update_log_view(text_view, buffer)
@@ -512,14 +536,39 @@ module ::DiscourseSystray
 
       # Process only the new lines
       new_lines = buffer[current_offset..-1]
+      
+      # If there are no new lines, just return
+      if new_lines.empty?
+        return
+      end
+      
+      # Add a simple text line if no content is showing
+      if text_view.buffer.text.empty?
+        text_view.buffer.text = "Starting log capture...\n"
+      end
+      
       new_lines.each do |line|
+        # Skip nil lines
+        next unless line
+        
+        # Handle plain text if no ANSI codes
+        if !line.include?("\e[")
+          chunk_start_iter = text_view.buffer.end_iter
+          text_view.buffer.insert(chunk_start_iter, line)
+          next
+        end
+        
+        # Process ANSI codes
         ansi_segments =
           line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
-
+        
         ansi_segments.each do |codes, text_part, clear_part, plain|
           chunk = text_part || clear_part || plain.to_s
+          next if chunk.empty?
+          
           chunk_start_iter = text_view.buffer.end_iter
           text_view.buffer.insert(chunk_start_iter, chunk)
+          chunk_end_iter = text_view.buffer.end_iter
 
           # For each ANSI code, apply tags
           if codes
@@ -531,14 +580,16 @@ module ::DiscourseSystray
                   text_view.buffer.apply_tag(
                     "bold",
                     chunk_start_iter,
-                    text_view.buffer.end_iter
+                    chunk_end_iter
                   )
                 when "31".."37"
-                  text_view.buffer.apply_tag(
-                    "ansi_#{code}",
-                    chunk_start_iter,
-                    text_view.buffer.end_iter
-                  )
+                  if text_view.buffer.tag_table.lookup("ansi_#{code}")
+                    text_view.buffer.apply_tag(
+                      "ansi_#{code}",
+                      chunk_start_iter,
+                      chunk_end_iter
+                    )
+                  end
                 end
               end
           end
