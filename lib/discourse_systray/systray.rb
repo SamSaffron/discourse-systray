@@ -90,8 +90,14 @@ module ::DiscourseSystray
       @status_window = nil
       @buffer_trim_timer = nil
       
+      # Add initial test data to buffers
+      @ember_output << "Initializing Ember output buffer...\n"
+      @unicorn_output << "Initializing Unicorn output buffer...\n"
+      
       # Set up periodic buffer trimming
       setup_buffer_trim_timer unless OPTIONS[:attach]
+      
+      puts "Initialized DiscourseSystray with path: #{@discourse_path}" if OPTIONS[:debug]
     end
     
     def setup_buffer_trim_timer
@@ -262,6 +268,16 @@ module ::DiscourseSystray
           end
         end
 
+      # Add a test message to the buffer
+      buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+      buffer << "Starting #{command}...\n"
+      
+      # Force immediate GUI update
+      GLib::Idle.add do
+        update_all_views
+        false
+      end
+
       # Monitor stdout - send to both console and UX buffer
       Thread.new do
         while line = stdout.gets
@@ -284,7 +300,7 @@ module ::DiscourseSystray
             end
           end
           
-          # Force GUI update
+          # Force GUI update - use main thread
           GLib::Idle.add do
             update_all_views
             false
@@ -301,7 +317,7 @@ module ::DiscourseSystray
           puts "[ERR] #{line}" if OPTIONS[:debug]
           
           # Add to buffer with size management
-          buffer << line
+          buffer << "ERROR: #{line}"
           # Only trim if significantly over limit to reduce frequent shifts
           if buffer.size > BUFFER_SIZE + 100
             excess = buffer.size - BUFFER_SIZE
@@ -314,7 +330,7 @@ module ::DiscourseSystray
             end
           end
           
-          # Force GUI update
+          # Force GUI update - use main thread
           GLib::Idle.add do
             update_all_views
             false
@@ -401,19 +417,26 @@ module ::DiscourseSystray
     def update_all_views
       return unless @status_window && !@status_window.destroyed?
       return unless @ember_view && @unicorn_view
-      return unless @ember_view.child && @unicorn_view.child
-      return if @ember_view.destroyed? || @unicorn_view.destroyed?
-      return if @ember_view.child.destroyed? || @unicorn_view.child.destroyed?
-
+      
       begin
-        if @ember_view.visible? && @ember_view.child.visible?
+        # More defensive checks
+        if @ember_view && !@ember_view.destroyed? && 
+           @ember_view.child && !@ember_view.child.destroyed?
           update_log_view(@ember_view.child, @ember_output)
         end
-        if @unicorn_view.visible? && @unicorn_view.child.visible?
+        
+        if @unicorn_view && !@unicorn_view.destroyed? && 
+           @unicorn_view.child && !@unicorn_view.child.destroyed?
           update_log_view(@unicorn_view.child, @unicorn_output)
+        end
+        
+        # Force UI update
+        while Gtk.events_pending?
+          Gtk.main_iteration_do(false)
         end
       rescue StandardError => e
         puts "Error updating views: #{e}" if OPTIONS[:debug]
+        puts e.backtrace.join("\n") if OPTIONS[:debug]
       end
     end
 
@@ -422,35 +445,36 @@ module ::DiscourseSystray
       text_view = Gtk::TextView.new
       text_view.editable = false
       text_view.wrap_mode = :word
-      text_view.monospace = true  # Use monospace font for better log readability
+      text_view.monospace = true
 
-      # Set white text on black background
+      # Set white text on black background - more explicit settings
       text_view.override_background_color(:normal, Gdk::RGBA.new(0, 0, 0, 1))
       text_view.override_color(:normal, Gdk::RGBA.new(1, 1, 1, 1))
-
-      # Create text tags for colors
-      _tag_table = text_view.buffer.tag_table
-      create_ansi_tags(text_view.buffer)
+      
+      # Set font size explicitly
+      font_desc = Pango::FontDescription.new
+      font_desc.family = "Monospace"
+      font_desc.size = 10 * Pango::SCALE
+      text_view.override_font(font_desc)
 
       # Add initial welcome text
-      text_view.buffer.text = "Waiting for log data...\n"
+      text_view.buffer.text = "Initializing log view...\n"
       
-      # Apply default text tag to initial text
-      text_view.buffer.apply_tag(
-        "default_text", 
-        text_view.buffer.start_iter,
-        text_view.buffer.end_iter
-      )
-
-      # Initial update
+      # Force immediate update
       update_log_view(text_view, buffer)
+      
+      # Add debug info if in debug mode
+      if OPTIONS[:debug]
+        text_view.buffer.text += "Debug mode enabled\n"
+        text_view.buffer.text += "Buffer size: #{buffer.size}\n"
+      end
 
       # Store timeouts in instance variable for proper cleanup
       @view_timeouts ||= {}
 
-      # Set up periodic refresh with validity check
+      # Set up periodic refresh with validity check - more frequent updates
       timeout_id =
-        GLib::Timeout.add(500) do
+        GLib::Timeout.add(250) do
           if text_view&.parent.nil? || text_view.destroyed?
             @view_timeouts.delete(text_view.object_id)
             false # Stop the timeout if view is destroyed
@@ -459,15 +483,10 @@ module ::DiscourseSystray
               update_log_view(text_view, buffer)
             rescue StandardError => e
               puts "Error updating log view: #{e}" if OPTIONS[:debug]
-              # Add error to the view itself for better debugging
+              # Add error directly to the buffer without tags
               if OPTIONS[:debug] && !text_view.destroyed? && !text_view.buffer.destroyed?
-                err_start = text_view.buffer.end_iter
-                text_view.buffer.insert(err_start, "\nERROR updating view: #{e}\n")
-                text_view.buffer.apply_tag(
-                  "ansi_31", 
-                  err_start,
-                  text_view.buffer.end_iter
-                )
+                text_view.buffer.insert(text_view.buffer.end_iter, 
+                                       "\nERROR updating view: #{e}\n")
               end
             end
             true # Keep the timeout active
@@ -530,70 +549,37 @@ module ::DiscourseSystray
       # Don't call if we've already processed all lines
       return if buffer.size <= current_offset
 
-      adj = text_view&.parent&.vadjustment
-      was_at_bottom = (adj && adj.value >= adj.upper - adj.page_size - 50)
-      old_value = adj ? adj.value : 0
+      # Add debug info
+      if OPTIONS[:debug] && text_view.buffer.text.empty?
+        debug_info = "Buffer size: #{buffer.size}, Current offset: #{current_offset}\n"
+        text_view.buffer.text = debug_info
+      end
 
       # Process only the new lines
       new_lines = buffer[current_offset..-1]
       
       # If there are no new lines, just return
-      if new_lines.empty?
+      if new_lines.nil? || new_lines.empty?
+        if text_view.buffer.text.empty?
+          text_view.buffer.text = "No log data available yet...\n"
+        end
         return
       end
       
-      # Add a simple text line if no content is showing
-      if text_view.buffer.text.empty?
-        text_view.buffer.text = "Starting log capture...\n"
-      end
-      
+      # Get scroll position
+      adj = text_view&.parent&.vadjustment
+      was_at_bottom = (adj && adj.value >= adj.upper - adj.page_size - 50)
+      old_value = adj ? adj.value : 0
+
+      # Simple approach: just append the text directly
       new_lines.each do |line|
-        # Skip nil lines
         next unless line
         
-        # Handle plain text if no ANSI codes
-        if !line.include?("\e[")
-          chunk_start_iter = text_view.buffer.end_iter
-          text_view.buffer.insert(chunk_start_iter, line)
-          next
-        end
+        # Strip ANSI codes for simplicity
+        clean_line = line.gsub(/\e\[[0-9;]*[mK]/, '')
         
-        # Process ANSI codes
-        ansi_segments =
-          line.scan(/\e\[([0-9;]*)m([^\e]*)|\e\[K([^\e]*)|([^\e]+)/)
-        
-        ansi_segments.each do |codes, text_part, clear_part, plain|
-          chunk = text_part || clear_part || plain.to_s
-          next if chunk.empty?
-          
-          chunk_start_iter = text_view.buffer.end_iter
-          text_view.buffer.insert(chunk_start_iter, chunk)
-          chunk_end_iter = text_view.buffer.end_iter
-
-          # For each ANSI code, apply tags
-          if codes
-            codes
-              .split(";")
-              .each do |code|
-                case code
-                when "1"
-                  text_view.buffer.apply_tag(
-                    "bold",
-                    chunk_start_iter,
-                    chunk_end_iter
-                  )
-                when "31".."37"
-                  if text_view.buffer.tag_table.lookup("ansi_#{code}")
-                    text_view.buffer.apply_tag(
-                      "ansi_#{code}",
-                      chunk_start_iter,
-                      chunk_end_iter
-                    )
-                  end
-                end
-              end
-          end
-        end
+        # Insert at end of buffer
+        text_view.buffer.insert(text_view.buffer.end_iter, clean_line)
       end
 
       # Update our offset counter
