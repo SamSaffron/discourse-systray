@@ -323,8 +323,11 @@ module ::DiscourseSystray
             buffer << line
             
             # Print buffer size for debugging
-            if OPTIONS[:debug] && buffer.size % 10 == 0
-              puts "DEBUG: Buffer size now: #{buffer.size}"
+            if OPTIONS[:debug]
+              puts "DEBUG: Added to buffer: #{line.inspect}"
+              if buffer.size % 10 == 0
+                puts "DEBUG: Buffer size now: #{buffer.size}"
+              end
             end
             
             # Trim if needed
@@ -343,6 +346,7 @@ module ::DiscourseSystray
           end
         rescue => e
           puts "DEBUG: Error in stdout thread: #{e.message}" if OPTIONS[:debug]
+          puts e.backtrace.join("\n") if OPTIONS[:debug]
         end
       end
 
@@ -360,8 +364,11 @@ module ::DiscourseSystray
             buffer << error_line
             
             # Print buffer size for debugging
-            if OPTIONS[:debug] && buffer.size % 10 == 0
-              puts "DEBUG: Buffer size now: #{buffer.size}"
+            if OPTIONS[:debug]
+              puts "DEBUG: Added to buffer: #{error_line.inspect}"
+              if buffer.size % 10 == 0
+                puts "DEBUG: Buffer size now: #{buffer.size}"
+              end
             end
             
             # Trim if needed
@@ -380,6 +387,7 @@ module ::DiscourseSystray
           end
         rescue => e
           puts "DEBUG: Error in stderr thread: #{e.message}" if OPTIONS[:debug]
+          puts e.backtrace.join("\n") if OPTIONS[:debug]
         end
       end
 
@@ -501,18 +509,12 @@ module ::DiscourseSystray
       return unless @ember_view && @unicorn_view
       
       begin
-        # Get current notebook page to only update the visible view
-        current_page = @notebook ? @notebook.page : -1
-        
-        # Update ember view if it's the current tab or if forced update
-        if (@notebook && current_page == 0) || 
-           (@ember_view && !@ember_view.destroyed? && @ember_view.child && !@ember_view.child.destroyed?)
+        # Always update both views for now to ensure content is displayed
+        if @ember_view && !@ember_view.destroyed? && @ember_view.child && !@ember_view.child.destroyed?
           update_log_view(@ember_view.child, @ember_output)
         end
         
-        # Update unicorn view if it's the current tab or if forced update
-        if (@notebook && current_page == 1) || 
-           (@unicorn_view && !@unicorn_view.destroyed? && @unicorn_view.child && !@unicorn_view.child.destroyed?)
+        if @unicorn_view && !@unicorn_view.destroyed? && @unicorn_view.child && !@unicorn_view.child.destroyed?
           update_log_view(@unicorn_view.child, @unicorn_output)
         end
         
@@ -615,8 +617,11 @@ module ::DiscourseSystray
 
       # Completely replace the buffer content with all lines
       begin
+        # Make a local copy of the buffer to avoid race conditions
+        buffer_copy = buffer.dup
+        
         # Join all buffer lines into a single string
-        all_content = buffer.join("")
+        all_content = buffer_copy.join("")
         
         # Strip ANSI codes
         clean_content = all_content.gsub(/\e\[[0-9;]*[mK]/, '')
@@ -811,27 +816,22 @@ module ::DiscourseSystray
             Thread.new do
               begin
                 while true
-                  if IO.select([pipe], nil, nil, 0.5)
-                    while line = pipe.gets
+                  if IO.select([pipe], nil, nil, 0.1)
+                    line = pipe.gets
+                    if line
                       puts line
                       STDOUT.flush
                       
                       # Process the line for our buffers
-                      if line.include?("ember") || line.include?("Ember")
+                      if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
                         @ember_output << line
-                        # Trim if needed
-                        if @ember_output.size > BUFFER_SIZE
-                          @ember_output.shift(@ember_output.size - BUFFER_SIZE)
-                        end
+                        puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
                       else
                         @unicorn_output << line
-                        # Trim if needed
-                        if @unicorn_output.size > BUFFER_SIZE
-                          @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
-                        end
+                        puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
                       end
                       
-                      # Force GUI update
+                      # Force GUI update immediately
                       GLib::Idle.add do
                         update_all_views
                         false
@@ -839,11 +839,14 @@ module ::DiscourseSystray
                     end
                   end
 
-                  sleep 0.1
+                  # Check if pipe still exists
                   unless File.exist?(PIPE_PATH)
                     puts "Pipe was deleted, exiting."
                     exit 0
                   end
+                  
+                  # Small sleep to prevent CPU hogging
+                  sleep 0.01
                 end
               rescue EOFError, IOError
                 puts "Pipe closed, exiting."
@@ -906,32 +909,34 @@ module ::DiscourseSystray
       return unless File.exist?(PIPE_PATH)
       puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
       begin
-        File.open(PIPE_PATH, "w") { |f| f.puts(msg) }
+        # Use non-blocking write to pipe
+        pipe_fd = IO.sysopen(PIPE_PATH, "w")
+        pipe_io = IO.new(pipe_fd, "w")
+        pipe_io.puts(msg)
+        pipe_io.flush
+        pipe_io.close
         
-        # Also add to our buffers when in attach mode
-        if OPTIONS[:attach]
-          # Determine which buffer to use based on content
-          if msg.include?("ember") || msg.include?("Ember")
-            @ember_output ||= []
-            @ember_output << msg
-            # Trim if needed
-            if @ember_output.size > BUFFER_SIZE
-              @ember_output.shift(@ember_output.size - BUFFER_SIZE)
-            end
-          else
-            @unicorn_output ||= []
-            @unicorn_output << msg
-            # Trim if needed
-            if @unicorn_output.size > BUFFER_SIZE
-              @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
-            end
+        # Also add to our buffers directly
+        if msg.include?("ember") || msg.include?("Ember") || msg.include?("ERROR: ...")
+          @ember_output ||= []
+          @ember_output << msg
+          # Trim if needed
+          if @ember_output.size > BUFFER_SIZE
+            @ember_output.shift(@ember_output.size - BUFFER_SIZE)
           end
-          
-          # Force GUI update
-          GLib::Idle.add do
-            update_all_views if defined?(update_all_views)
-            false
+        else
+          @unicorn_output ||= []
+          @unicorn_output << msg
+          # Trim if needed
+          if @unicorn_output.size > BUFFER_SIZE
+            @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
           end
+        end
+        
+        # Force GUI update
+        GLib::Idle.add do
+          update_all_views if defined?(update_all_views)
+          false
         end
       rescue Errno::EPIPE, IOError => e
         puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
