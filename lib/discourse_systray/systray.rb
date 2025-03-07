@@ -92,16 +92,15 @@ module ::DiscourseSystray
       @status_window = nil
       @buffer_trim_timer = nil
       
-      # Add initial test data to buffers with timestamp
+      # Add initial welcome message to buffers with timestamp
       timestamp = Time.now.strftime("%H:%M:%S")
-      @ember_output << "#{timestamp} - Initializing Ember output buffer...\n"
-      @unicorn_output << "#{timestamp} - Initializing Unicorn output buffer...\n"
+      @ember_output << "#{timestamp} - Discourse Ember CLI Log\n"
+      @ember_output << "Start Discourse to see Ember CLI logs here.\n"
+      @ember_output << "\n"
       
-      # Add some more test data to make sure we have content
-      @ember_output << "This is a test line for Ember\n"
-      @ember_output << "Another test line for Ember\n"
-      @unicorn_output << "This is a test line for Unicorn\n"
-      @unicorn_output << "Another test line for Unicorn\n"
+      @unicorn_output << "#{timestamp} - Discourse Unicorn Log\n"
+      @unicorn_output << "Start Discourse to see Unicorn logs here.\n"
+      @unicorn_output << "\n"
       
       # Add a visual separator
       @ember_output << "=" * 50 + "\n"
@@ -298,13 +297,17 @@ module ::DiscourseSystray
           end
         end
 
-      # Add a start message to the buffer
+      # Clear the buffer before starting
       buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+      buffer.clear
+      
+      # Add a start message to the buffer
       timestamp = Time.now.strftime("%H:%M:%S")
       buffer << "#{timestamp} - Starting #{command}...\n"
       
       # Force immediate GUI update
       GLib::Idle.add do
+        show_status_window if @status_window.nil? || !@status_window.visible?
         update_all_views
         false
       end
@@ -400,6 +403,13 @@ module ::DiscourseSystray
             system("i3-msg '[id=#{@status_window.window.xid}] focus'")
           end
         end
+        
+        # Force an update of the views even if window is already visible
+        GLib::Idle.add do
+          update_all_views
+          false
+        end
+        
         return
       end
 
@@ -449,17 +459,6 @@ module ::DiscourseSystray
       # Debug buffer contents before creating views
       puts "DEBUG: ember_output size: #{@ember_output.size}" if OPTIONS[:debug]
       puts "DEBUG: unicorn_output size: #{@unicorn_output.size}" if OPTIONS[:debug]
-      
-      # Add some test data if buffers are empty
-      if @ember_output.empty?
-        @ember_output << "Test data for ember output - #{Time.now}\n"
-        puts "DEBUG: Added test data to ember_output" if OPTIONS[:debug]
-      end
-      
-      if @unicorn_output.empty?
-        @unicorn_output << "Test data for unicorn output - #{Time.now}\n"
-        puts "DEBUG: Added test data to unicorn_output" if OPTIONS[:debug]
-      end
 
       puts "DEBUG: Creating ember view" if OPTIONS[:debug]
       @ember_view = create_log_view(@ember_output)
@@ -602,6 +601,11 @@ module ::DiscourseSystray
         end
       end
 
+      # If buffer is empty, add a placeholder message
+      if buffer.empty?
+        buffer << "No log data available yet. Start Discourse to see logs.\n"
+      end
+
       # Completely replace the buffer content with all lines
       begin
         # Join all buffer lines into a single string
@@ -610,23 +614,20 @@ module ::DiscourseSystray
         # Strip ANSI codes
         clean_content = all_content.gsub(/\e\[[0-9;]*[mK]/, '')
         
-        # Only update if content has changed
-        if text_view.buffer.text != clean_content
-          # Set the entire buffer text at once
-          text_view.buffer.text = clean_content
-          
-          puts "DEBUG: Updated buffer text (#{clean_content.length} chars)" if OPTIONS[:debug]
-          
-          # Scroll to bottom
-          adj = text_view&.parent&.vadjustment
-          if adj
-            adj.value = adj.upper - adj.page_size
-          end
-          
-          # Process any pending GTK events to ensure UI updates
-          while Gtk.events_pending?
-            Gtk.main_iteration_do(false)
-          end
+        # Always update the content to ensure it's displayed
+        text_view.buffer.text = clean_content
+        
+        puts "DEBUG: Updated buffer text (#{clean_content.length} chars)" if OPTIONS[:debug]
+        
+        # Scroll to bottom
+        adj = text_view&.parent&.vadjustment
+        if adj
+          adj.value = adj.upper - adj.page_size
+        end
+        
+        # Process any pending GTK events to ensure UI updates
+        while Gtk.events_pending?
+          Gtk.main_iteration_do(false)
         end
       rescue => e
         puts "DEBUG: Error updating text view: #{e.message}" if OPTIONS[:debug]
@@ -843,6 +844,12 @@ module ::DiscourseSystray
 
         # Setup systray icon and menu
         init_systray
+        
+        # Show status window immediately on startup
+        GLib::Idle.add do
+          show_status_window
+          false
+        end
 
         # Start GTK main loop
         Gtk.main
