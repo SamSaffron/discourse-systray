@@ -9,5 +9,10 @@ require "discourse_systray/systray"
 # swap back env so we are not infected
 ENV.replace(env)
 
+# Parse command line arguments
+if ARGV.include?("--debug")
+  DiscourseSystray::Systray::OPTIONS[:debug] = true
+end
+
 # Run the systray
 DiscourseSystray::Systray.new.run

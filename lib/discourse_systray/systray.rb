@@ -317,7 +317,6 @@ module ::DiscourseSystray
         begin
           while line = stdout.gets
             buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-            publish_to_pipe(line)
             puts "[OUT] #{line}" if OPTIONS[:debug]
             
             # Add to buffer with size management
@@ -338,6 +337,9 @@ module ::DiscourseSystray
               update_all_views
               false
             end
+            
+            # Also publish to pipe for --attach mode
+            publish_to_pipe(line)
           end
         rescue => e
           puts "DEBUG: Error in stdout thread: #{e.message}" if OPTIONS[:debug]
@@ -349,11 +351,13 @@ module ::DiscourseSystray
         begin
           while line = stderr.gets
             buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
-            publish_to_pipe("ERROR: #{line}")
             puts "[ERR] #{line}" if OPTIONS[:debug]
             
+            # Format error line
+            error_line = "ERROR: #{line}"
+            
             # Add to buffer with size management
-            buffer << "ERROR: #{line}"
+            buffer << error_line
             
             # Print buffer size for debugging
             if OPTIONS[:debug] && buffer.size % 10 == 0
@@ -370,6 +374,9 @@ module ::DiscourseSystray
               update_all_views
               false
             end
+            
+            # Also publish to pipe for --attach mode
+            publish_to_pipe(error_line)
           end
         rescue => e
           puts "DEBUG: Error in stderr thread: #{e.message}" if OPTIONS[:debug]
@@ -773,6 +780,19 @@ module ::DiscourseSystray
       if OPTIONS[:attach]
         require "rb-inotify"
 
+        # Initialize GTK for attach mode too
+        Gtk.init
+        
+        # Initialize empty buffers
+        @ember_output = []
+        @unicorn_output = []
+        
+        # Show status window immediately in attach mode too
+        GLib::Idle.add do
+          show_status_window
+          false
+        end
+
         notifier = INotify::Notifier.new
 
         begin
@@ -795,6 +815,27 @@ module ::DiscourseSystray
                     while line = pipe.gets
                       puts line
                       STDOUT.flush
+                      
+                      # Process the line for our buffers
+                      if line.include?("ember") || line.include?("Ember")
+                        @ember_output << line
+                        # Trim if needed
+                        if @ember_output.size > BUFFER_SIZE
+                          @ember_output.shift(@ember_output.size - BUFFER_SIZE)
+                        end
+                      else
+                        @unicorn_output << line
+                        # Trim if needed
+                        if @unicorn_output.size > BUFFER_SIZE
+                          @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
+                        end
+                      end
+                      
+                      # Force GUI update
+                      GLib::Idle.add do
+                        update_all_views
+                        false
+                      end
                     end
                   end
 
@@ -810,6 +851,11 @@ module ::DiscourseSystray
               end
             end
 
+          # Start GTK main loop in a separate thread
+          gtk_thread = Thread.new do
+            Gtk.main
+          end
+          
           # Handle notifications in main thread
           notifier.run
         rescue Errno::ENOENT
@@ -861,6 +907,32 @@ module ::DiscourseSystray
       puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
       begin
         File.open(PIPE_PATH, "w") { |f| f.puts(msg) }
+        
+        # Also add to our buffers when in attach mode
+        if OPTIONS[:attach]
+          # Determine which buffer to use based on content
+          if msg.include?("ember") || msg.include?("Ember")
+            @ember_output ||= []
+            @ember_output << msg
+            # Trim if needed
+            if @ember_output.size > BUFFER_SIZE
+              @ember_output.shift(@ember_output.size - BUFFER_SIZE)
+            end
+          else
+            @unicorn_output ||= []
+            @unicorn_output << msg
+            # Trim if needed
+            if @unicorn_output.size > BUFFER_SIZE
+              @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
+            end
+          end
+          
+          # Force GUI update
+          GLib::Idle.add do
+            update_all_views if defined?(update_all_views)
+            false
+          end
+        end
       rescue Errno::EPIPE, IOError => e
         puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
       end
