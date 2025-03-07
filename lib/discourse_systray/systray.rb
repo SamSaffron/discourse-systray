@@ -92,6 +92,9 @@ module ::DiscourseSystray
       @status_window = nil
       @buffer_trim_timer = nil
       
+      # Initialize pipe queue for background processing
+      initialize_pipe_queue
+      
       # Add initial welcome message to buffers with timestamp
       timestamp = Time.now.strftime("%H:%M:%S")
       @ember_output << "#{timestamp} - Discourse Ember CLI Log\n"
@@ -243,6 +246,17 @@ module ::DiscourseSystray
           puts "Error removing buffer trim timer: #{e}" if OPTIONS[:debug]
         end
       end
+      
+      # Stop pipe thread
+      if @pipe_thread
+        begin
+          @pipe_queue.push(:exit) if @pipe_queue
+          @pipe_thread.join(2) # Wait up to 2 seconds
+          @pipe_thread.kill if @pipe_thread.alive?
+        rescue StandardError => e
+          puts "Error stopping pipe thread: #{e}" if OPTIONS[:debug]
+        end
+      end
 
       # Then stop processes
       @processes.each do |name, process|
@@ -341,12 +355,23 @@ module ::DiscourseSystray
               false
             end
             
-            # Also publish to pipe for --attach mode
+            # Also publish to pipe for --attach mode in background
             publish_to_pipe(line)
           end
         rescue => e
           puts "DEBUG: Error in stdout thread: #{e.message}" if OPTIONS[:debug]
           puts e.backtrace.join("\n") if OPTIONS[:debug]
+          
+          # Add error to buffer for visibility
+          buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+          error_msg = "ERROR: Exception in stdout thread: #{e.message}\n"
+          buffer << error_msg
+          
+          # Force GUI update
+          GLib::Idle.add do
+            update_all_views
+            false
+          end
         end
       end
 
@@ -382,12 +407,23 @@ module ::DiscourseSystray
               false
             end
             
-            # Also publish to pipe for --attach mode
+            # Also publish to pipe for --attach mode in background
             publish_to_pipe(error_line)
           end
         rescue => e
           puts "DEBUG: Error in stderr thread: #{e.message}" if OPTIONS[:debug]
           puts e.backtrace.join("\n") if OPTIONS[:debug]
+          
+          # Add error to buffer for visibility
+          buffer = command.include?("ember-cli") ? @ember_output : @unicorn_output
+          error_msg = "ERROR: Exception in stderr thread: #{e.message}\n"
+          buffer << error_msg
+          
+          # Force GUI update
+          GLib::Idle.add do
+            update_all_views
+            false
+          end
         end
       end
 
@@ -816,27 +852,34 @@ module ::DiscourseSystray
             Thread.new do
               begin
                 while true
-                  if IO.select([pipe], nil, nil, 0.1)
-                    line = pipe.gets
-                    if line
-                      puts line
-                      STDOUT.flush
-                      
-                      # Process the line for our buffers
-                      if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
-                        @ember_output << line
-                        puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
-                      else
-                        @unicorn_output << line
-                        puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
-                      end
-                      
-                      # Force GUI update immediately
-                      GLib::Idle.add do
-                        update_all_views
-                        false
+                  begin
+                    # Use non-blocking read with timeout
+                    ready = IO.select([pipe], nil, nil, 0.1)
+                    if ready && ready[0].include?(pipe)
+                      line = pipe.gets
+                      if line
+                        puts line
+                        STDOUT.flush
+                        
+                        # Process the line for our buffers
+                        if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
+                          @ember_output << line
+                          puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
+                        else
+                          @unicorn_output << line
+                          puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
+                        end
+                        
+                        # Force GUI update immediately
+                        GLib::Idle.add do
+                          update_all_views
+                          false
+                        end
                       end
                     end
+                  rescue IOError, Errno::EBADF => e
+                    puts "DEBUG: Pipe read error: #{e.message}" if OPTIONS[:debug]
+                    break
                   end
 
                   # Check if pipe still exists
@@ -905,42 +948,68 @@ module ::DiscourseSystray
       end
     end
 
-    def publish_to_pipe(msg)
-      return unless File.exist?(PIPE_PATH)
-      puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
-      begin
-        # Use non-blocking write to pipe
-        pipe_fd = IO.sysopen(PIPE_PATH, "w")
-        pipe_io = IO.new(pipe_fd, "w")
-        pipe_io.puts(msg)
-        pipe_io.flush
-        pipe_io.close
-        
-        # Also add to our buffers directly
-        if msg.include?("ember") || msg.include?("Ember") || msg.include?("ERROR: ...")
-          @ember_output ||= []
-          @ember_output << msg
-          # Trim if needed
-          if @ember_output.size > BUFFER_SIZE
-            @ember_output.shift(@ember_output.size - BUFFER_SIZE)
+    # Queue for pipe messages to avoid blocking
+    def initialize_pipe_queue
+      @pipe_queue = Queue.new
+      @pipe_thread = Thread.new do
+        loop do
+          begin
+            msg = @pipe_queue.pop
+            break if msg == :exit
+            
+            if File.exist?(PIPE_PATH)
+              begin
+                # Use non-blocking write with timeout
+                Timeout.timeout(0.5) do
+                  File.open(PIPE_PATH, "w") do |f|
+                    f.puts(msg)
+                    f.flush
+                  end
+                end
+              rescue Timeout::Error
+                puts "Timeout writing to pipe" if OPTIONS[:debug]
+              rescue Errno::EPIPE, IOError => e
+                puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
+              end
+            end
+          rescue => e
+            puts "Error in pipe thread: #{e}" if OPTIONS[:debug]
           end
-        else
-          @unicorn_output ||= []
-          @unicorn_output << msg
-          # Trim if needed
-          if @unicorn_output.size > BUFFER_SIZE
-            @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
-          end
+          
+          # Small sleep to prevent CPU hogging
+          sleep 0.01
         end
-        
-        # Force GUI update
-        GLib::Idle.add do
-          update_all_views if defined?(update_all_views)
-          false
-        end
-      rescue Errno::EPIPE, IOError => e
-        puts "Error writing to pipe: #{e}" if OPTIONS[:debug]
       end
+    end
+    
+    def publish_to_pipe(msg)
+      puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
+      
+      # Add to our buffers directly - do this immediately
+      if msg.include?("ember") || msg.include?("Ember") || msg.include?("ERROR: ...")
+        @ember_output ||= []
+        @ember_output << msg
+        # Trim if needed
+        if @ember_output.size > BUFFER_SIZE
+          @ember_output.shift(@ember_output.size - BUFFER_SIZE)
+        end
+      else
+        @unicorn_output ||= []
+        @unicorn_output << msg
+        # Trim if needed
+        if @unicorn_output.size > BUFFER_SIZE
+          @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
+        end
+      end
+      
+      # Force GUI update immediately
+      GLib::Idle.add do
+        update_all_views if defined?(update_all_views)
+        false
+      end
+      
+      # Queue the message for pipe writing in background
+      @pipe_queue.push(msg) if @pipe_queue
     end
 
     def handle_command(cmd)
