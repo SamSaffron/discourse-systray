@@ -321,7 +321,6 @@ module ::DiscourseSystray
       
       # Force immediate GUI update
       GLib::Idle.add do
-        show_status_window if @status_window.nil? || !@status_window.visible?
         update_all_views
         false
       end
@@ -356,7 +355,7 @@ module ::DiscourseSystray
             end
             
             # Also publish to pipe for --attach mode in background
-            publish_to_pipe(line)
+            publish_to_pipe(line, process: command.include?("ember-cli") ? :ember : :unicorn, stream: :stdout)
           end
         rescue => e
           puts "DEBUG: Error in stdout thread: #{e.message}" if OPTIONS[:debug]
@@ -383,7 +382,7 @@ module ::DiscourseSystray
             puts "[ERR] #{line}" if OPTIONS[:debug]
             
             # Format error line
-            error_line = "ERROR: #{line}"
+            error_line = "E: #{line}"
             
             # Add to buffer with size management
             buffer << error_line
@@ -408,7 +407,7 @@ module ::DiscourseSystray
             end
             
             # Also publish to pipe for --attach mode in background
-            publish_to_pipe(error_line)
+            publish_to_pipe(error_line, process: command.include?("ember-cli") ? :ember : :unicorn, stream: :stderr)
           end
         rescue => e
           puts "DEBUG: Error in stderr thread: #{e.message}" if OPTIONS[:debug]
@@ -447,10 +446,7 @@ module ::DiscourseSystray
         if @status_window.window
           @status_window.window.raise
           if system("which i3-msg >/dev/null 2>&1")
-            # First move to current workspace, then focus
-            system(
-              "i3-msg '[id=#{@status_window.window.xid}] move workspace current'"
-            )
+            system("i3-msg '[id=#{@status_window.window.xid}] move workspace current'")
             system("i3-msg '[id=#{@status_window.window.xid}] focus'")
           end
         end
@@ -464,13 +460,19 @@ module ::DiscourseSystray
         return
       end
 
-      # Clean up any existing window
+      # Clean up any existing window and notebook
       if @status_window
         puts "DEBUG: Destroying existing status window" if OPTIONS[:debug]
+        @notebook = nil # Clear notebook reference
+        @ember_view = nil
+        @unicorn_view = nil
+        @ember_label = nil
+        @unicorn_label = nil
         @status_window.destroy
         @status_window = nil
       end
 
+      # Create new window and components
       puts "DEBUG: Creating new status window" if OPTIONS[:debug]
       @status_window = Gtk::Window.new("Discourse Status")
       @status_window.set_wmclass("discourse-status", "Discourse Status")
@@ -504,24 +506,24 @@ module ::DiscourseSystray
         false
       end
 
+      # Create notebook only if it doesn't exist
       puts "DEBUG: Creating notebook" if OPTIONS[:debug]
       @notebook = Gtk::Notebook.new
 
-      # Debug buffer contents before creating views
-      puts "DEBUG: ember_output size: #{@ember_output.size}" if OPTIONS[:debug]
-      puts "DEBUG: unicorn_output size: #{@unicorn_output.size}" if OPTIONS[:debug]
+      # Only create views if they don't exist
+      if @ember_view.nil?
+        puts "DEBUG: Creating ember view" if OPTIONS[:debug]
+        @ember_view = create_log_view(@ember_output)
+        @ember_label = create_status_label("Ember CLI", @ember_running)
+        @notebook.append_page(@ember_view, @ember_label)
+      end
 
-      puts "DEBUG: Creating ember view" if OPTIONS[:debug]
-      @ember_view = create_log_view(@ember_output)
-      @ember_label = create_status_label("Ember CLI", @ember_running)
-      @notebook.append_page(@ember_view, @ember_label)
-      puts "DEBUG: Added ember view to notebook" if OPTIONS[:debug]
-
-      puts "DEBUG: Creating unicorn view" if OPTIONS[:debug]
-      @unicorn_view = create_log_view(@unicorn_output)
-      @unicorn_label = create_status_label("Unicorn", @unicorn_running)
-      @notebook.append_page(@unicorn_view, @unicorn_label)
-      puts "DEBUG: Added unicorn view to notebook" if OPTIONS[:debug]
+      if @unicorn_view.nil?
+        puts "DEBUG: Creating unicorn view" if OPTIONS[:debug]
+        @unicorn_view = create_log_view(@unicorn_output)
+        @unicorn_label = create_status_label("Unicorn", @unicorn_running)
+        @notebook.append_page(@unicorn_view, @unicorn_label)
+      end
 
       @status_window.add(@notebook)
       puts "DEBUG: Added notebook to status window" if OPTIONS[:debug]
@@ -821,6 +823,12 @@ module ::DiscourseSystray
       if OPTIONS[:attach]
         require "rb-inotify"
 
+        # Set up signal handling for Ctrl+C
+        Signal.trap("INT") do
+          puts "Received interrupt signal, shutting down..."
+          exit 0
+        end
+
         # Initialize GTK for attach mode too
         Gtk.init
         
@@ -828,12 +836,6 @@ module ::DiscourseSystray
         @ember_output = []
         @unicorn_output = []
         
-        # Show status window immediately in attach mode too
-        GLib::Idle.add do
-          show_status_window
-          false
-        end
-
         notifier = INotify::Notifier.new
 
         begin
@@ -848,65 +850,78 @@ module ::DiscourseSystray
           end
 
           # Read from pipe in a separate thread
-          reader =
-            Thread.new do
-              begin
-                while true
-                  begin
-                    # Use non-blocking read with timeout
-                    ready = IO.select([pipe], nil, nil, 0.1)
-                    if ready && ready[0].include?(pipe)
-                      line = pipe.gets
-                      if line
-                        puts line
-                        STDOUT.flush
-                        
-                        # Process the line for our buffers
-                        if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
-                          @ember_output << line
-                          puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
-                        else
-                          @unicorn_output << line
-                          puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
-                        end
-                        
-                        # Force GUI update immediately
-                        GLib::Idle.add do
-                          update_all_views
-                          false
-                        end
+          reader = Thread.new do
+            # Set thread abort on exception
+            Thread.current.abort_on_exception = true
+            
+            begin
+              while true
+                begin
+                  # Use non-blocking read with timeout
+                  ready = IO.select([pipe], nil, nil, 0.1)
+                  if ready && ready[0].include?(pipe)
+                    line = pipe.gets
+                    if line
+                      puts line
+                      STDOUT.flush
+                      
+                      # Process the line for our buffers
+                      if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
+                        @ember_output << line
+                        puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
+                      else
+                        @unicorn_output << line
+                        puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
+                      end
+                      
+                      # Force GUI update immediately
+                      GLib::Idle.add do
+                        update_all_views
+                        false
                       end
                     end
-                  rescue IOError, Errno::EBADF => e
-                    puts "DEBUG: Pipe read error: #{e.message}" if OPTIONS[:debug]
-                    break
                   end
-
-                  # Check if pipe still exists
-                  unless File.exist?(PIPE_PATH)
-                    puts "Pipe was deleted, exiting."
-                    exit 0
-                  end
-                  
-                  # Small sleep to prevent CPU hogging
-                  sleep 0.01
+                rescue IOError, Errno::EBADF => e
+                  puts "DEBUG: Pipe read error: #{e.message}" if OPTIONS[:debug]
+                  break
                 end
-              rescue EOFError, IOError
-                puts "Pipe closed, exiting."
-                exit 0
+
+                # Check if pipe still exists
+                unless File.exist?(PIPE_PATH)
+                  puts "Pipe was deleted, exiting."
+                  exit 0
+                end
+                
+                # Small sleep to prevent CPU hogging
+                sleep 0.01
               end
+            rescue EOFError, IOError
+              puts "Pipe closed, exiting."
+              exit 0
             end
+          end
 
           # Start GTK main loop in a separate thread
           gtk_thread = Thread.new do
+            Thread.current.abort_on_exception = true
             Gtk.main
           end
           
-          # Handle notifications in main thread
-          notifier.run
+          # Set up non-blocking notifier processing
+          # Instead of notifier.run which blocks indefinitely, use a loop with timeout
+          while true
+            # Process any pending inotify events, with timeout
+            notifier.process
+            
+            # Sleep briefly to prevent CPU hogging
+            sleep 0.1
+          end
         rescue Errno::ENOENT
           puts "Pipe doesn't exist, exiting."
           exit 1
+        rescue Interrupt
+          puts "Interrupted, exiting."
+          exit 0
         ensure
           reader&.kill
           pipe&.close
@@ -937,12 +952,6 @@ module ::DiscourseSystray
         # Setup systray icon and menu
         init_systray
         
-        # Show status window immediately on startup
-        GLib::Idle.add do
-          show_status_window
-          false
-        end
-
         # Start GTK main loop
         Gtk.main
       end
@@ -982,33 +991,10 @@ module ::DiscourseSystray
       end
     end
     
-    def publish_to_pipe(msg)
-      puts "Publish to pipe: #{msg}" if OPTIONS[:debug]
+    def publish_to_pipe(msg, process: nil, stream: nil)
+      source_info = "[#{process || 'unknown'}:#{stream || 'unknown'}]"
+      puts "Publish to pipe #{source_info}: #{msg}" if OPTIONS[:debug]
       
-      # Add to our buffers directly - do this immediately
-      if msg.include?("ember") || msg.include?("Ember") || msg.include?("ERROR: ...")
-        @ember_output ||= []
-        @ember_output << msg
-        # Trim if needed
-        if @ember_output.size > BUFFER_SIZE
-          @ember_output.shift(@ember_output.size - BUFFER_SIZE)
-        end
-      else
-        @unicorn_output ||= []
-        @unicorn_output << msg
-        # Trim if needed
-        if @unicorn_output.size > BUFFER_SIZE
-          @unicorn_output.shift(@unicorn_output.size - BUFFER_SIZE)
-        end
-      end
-      
-      # Force GUI update immediately
-      GLib::Idle.add do
-        update_all_views if defined?(update_all_views)
-        false
-      end
-      
-      # Queue the message for pipe writing in background
       @pipe_queue.push(msg) if @pipe_queue
     end
 
