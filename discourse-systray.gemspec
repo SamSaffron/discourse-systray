@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name = "discourse-systray"
-  spec.version = "0.1.3"
+  spec.version = "0.1.4"
   spec.authors = ["Sam Saffron"]
   spec.email = ["sam.saffron@gmail.com"]
 
