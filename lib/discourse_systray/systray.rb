@@ -828,13 +828,6 @@ module ::DiscourseSystray
           puts "Received interrupt signal, shutting down..."
           exit 0
         end
-
-        # Initialize GTK for attach mode too
-        Gtk.init
-        
-        # Initialize empty buffers
-        @ember_output = []
-        @unicorn_output = []
         
         notifier = INotify::Notifier.new
 
@@ -864,21 +857,6 @@ module ::DiscourseSystray
                     if line
                       puts line
                       STDOUT.flush
-                      
-                      # Process the line for our buffers
-                      if line.include?("ember") || line.include?("Ember") || line.include?("ERROR: ...")
-                        @ember_output << line
-                        puts "DEBUG: Added to ember buffer: #{line}" if OPTIONS[:debug]
-                      else
-                        @unicorn_output << line
-                        puts "DEBUG: Added to unicorn buffer: #{line}" if OPTIONS[:debug]
-                      end
-                      
-                      # Force GUI update immediately
-                      GLib::Idle.add do
-                        update_all_views
-                        false
-                      end
                     end
                   end
                 rescue IOError, Errno::EBADF => e
@@ -899,12 +877,6 @@ module ::DiscourseSystray
               puts "Pipe closed, exiting."
               exit 0
             end
-          end
-
-          # Start GTK main loop in a separate thread
-          gtk_thread = Thread.new do
-            Thread.current.abort_on_exception = true
-            Gtk.main
           end
           
           # Set up non-blocking notifier processing

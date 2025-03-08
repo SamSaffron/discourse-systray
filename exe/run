@@ -14,5 +14,9 @@ if ARGV.include?("--debug")
   DiscourseSystray::Systray::OPTIONS[:debug] = true
 end
 
+if ARGV.include?("--attach")
+  DiscourseSystray::Systray::OPTIONS[:attach] = true
+end
+
 # Run the systray
 DiscourseSystray::Systray.new.run
